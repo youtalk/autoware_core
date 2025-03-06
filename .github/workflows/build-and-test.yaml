@@ -67,7 +67,7 @@ jobs:
 
       - name: Build
         if: ${{ steps.get-self-packages.outputs.self-packages != '' }}
-        uses: youtalk/autoware-github-actions/colcon-build@source-opt-autoware-setup
+        uses: youtalk/autoware-github-actions/colcon-build@v1.46.0
         with:
           rosdistro: humble
           target-packages: ${{ steps.get-self-packages.outputs.self-packages }}
