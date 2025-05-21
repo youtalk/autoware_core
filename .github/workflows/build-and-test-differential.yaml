@@ -25,7 +25,7 @@ jobs:
   build-and-test-differential:
     needs: require-label
     if: ${{ needs.require-label.outputs.result == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: buildjet-16vcpu-ubuntu-2204
     container: ${{ matrix.container }}
     strategy:
       fail-fast: false
@@ -57,7 +57,7 @@ jobs:
 
   clang-tidy-differential:
     needs: build-and-test-differential
-    runs-on: ubuntu-24.04
+    runs-on: buildjet-16vcpu-ubuntu-2204
     container: ghcr.io/autowarefoundation/autoware:core-common-devel
     steps:
       - name: Set PR fetch depth
@@ -101,7 +101,7 @@ jobs:
   build-and-test-packages-above-differential:
     needs: require-label
     if: ${{ needs.require-label.outputs.result == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: buildjet-16vcpu-ubuntu-2204
     container: ghcr.io/autowarefoundation/autoware:core-common-devel
     steps:
       - name: Set PR fetch depth
