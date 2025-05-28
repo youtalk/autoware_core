@@ -25,6 +25,7 @@
 #include <pcl_ros/transforms.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -378,7 +379,7 @@ void GroundFilterComponent::faster_input_indices_callback(
   // Need setInputCloud() here because we have to extract x/y/z
   pcl::IndicesPtr vindices;
   if (indices) {
-    vindices.reset(new std::vector<int>(indices->indices));
+    vindices = std::make_shared<std::vector<int>>(indices->indices.begin(), indices->indices.end());
   }
 
   auto output = std::make_unique<PointCloud2>();
@@ -588,12 +589,13 @@ void GroundFilterComponent::extractObjectPoints(
     st_ptr = std::make_unique<autoware_utils_debug::ScopedTimeTrack>(__func__, *time_keeper_);
 
   size_t output_data_size = 0;
+  const auto point_step = static_cast<std::size_t>(in_cloud_ptr->point_step);
+  const auto * input_data = in_cloud_ptr->data.data();
+  auto * output_data = out_object_cloud.data.data();
 
-  for (const auto & idx : in_indices.indices) {
-    std::memcpy(
-      &out_object_cloud.data[output_data_size], &in_cloud_ptr->data[idx],
-      in_cloud_ptr->point_step * sizeof(uint8_t));
-    output_data_size += in_cloud_ptr->point_step;
+  for (const auto idx : in_indices.indices) {
+    std::copy_n(input_data + idx, point_step, output_data + output_data_size);
+    output_data_size += point_step;
   }
 }
 

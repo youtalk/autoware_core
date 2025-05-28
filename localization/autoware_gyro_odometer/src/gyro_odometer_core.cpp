@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <numeric>
 #include <sstream>
 #include <string>
 
@@ -211,31 +212,47 @@ void GyroOdometerNode::concat_gyro_and_odometer()
   using COV_IDX_XYZRPY = autoware_utils_geometry::xyzrpy_covariance_index::XYZRPY_COV_IDX;
 
   // calc mean, covariance
-  double vx_mean = 0;
-  geometry_msgs::msg::Vector3 gyro_mean{};
-  double vx_covariance_original = 0;
-  geometry_msgs::msg::Vector3 gyro_covariance_original{};
-  for (const auto & vehicle_twist : vehicle_twist_queue_) {
-    vx_mean += vehicle_twist.twist.twist.linear.x;
-    vx_covariance_original += vehicle_twist.twist.covariance[0 * 6 + 0];
-  }
-  vx_mean /= static_cast<double>(vehicle_twist_queue_.size());
-  vx_covariance_original /= static_cast<double>(vehicle_twist_queue_.size());
+  const auto vehicle_size = static_cast<double>(vehicle_twist_queue_.size());
+  const auto gyro_size = static_cast<double>(gyro_queue_.size());
 
-  for (const auto & gyro : gyro_queue_) {
-    gyro_mean.x += gyro.angular_velocity.x;
-    gyro_mean.y += gyro.angular_velocity.y;
-    gyro_mean.z += gyro.angular_velocity.z;
-    gyro_covariance_original.x += gyro.angular_velocity_covariance[COV_IDX_XYZ::X_X];
-    gyro_covariance_original.y += gyro.angular_velocity_covariance[COV_IDX_XYZ::Y_Y];
-    gyro_covariance_original.z += gyro.angular_velocity_covariance[COV_IDX_XYZ::Z_Z];
-  }
-  gyro_mean.x /= static_cast<double>(gyro_queue_.size());
-  gyro_mean.y /= static_cast<double>(gyro_queue_.size());
-  gyro_mean.z /= static_cast<double>(gyro_queue_.size());
-  gyro_covariance_original.x /= static_cast<double>(gyro_queue_.size());
-  gyro_covariance_original.y /= static_cast<double>(gyro_queue_.size());
-  gyro_covariance_original.z /= static_cast<double>(gyro_queue_.size());
+  const double vx_mean =
+    std::accumulate(
+      vehicle_twist_queue_.cbegin(), vehicle_twist_queue_.cend(), 0.0,
+      [](double acc, const auto & vehicle_twist) {
+        return acc + vehicle_twist.twist.twist.linear.x;
+      }) /
+    vehicle_size;
+  const double vx_covariance_original =
+    std::accumulate(
+      vehicle_twist_queue_.cbegin(), vehicle_twist_queue_.cend(), 0.0,
+      [](double acc, const auto & vehicle_twist) {
+        return acc + vehicle_twist.twist.covariance[0 * 6 + 0];
+      }) /
+    vehicle_size;
+
+  auto gyro_mean = std::accumulate(
+    gyro_queue_.cbegin(), gyro_queue_.cend(), geometry_msgs::msg::Vector3{},
+    [](auto sum, const auto & gyro) {
+      sum.x += gyro.angular_velocity.x;
+      sum.y += gyro.angular_velocity.y;
+      sum.z += gyro.angular_velocity.z;
+      return sum;
+    });
+  gyro_mean.x /= gyro_size;
+  gyro_mean.y /= gyro_size;
+  gyro_mean.z /= gyro_size;
+
+  auto gyro_covariance_original = std::accumulate(
+    gyro_queue_.cbegin(), gyro_queue_.cend(), geometry_msgs::msg::Vector3{},
+    [](auto sum, const auto & gyro) {
+      sum.x += gyro.angular_velocity_covariance[COV_IDX_XYZ::X_X];
+      sum.y += gyro.angular_velocity_covariance[COV_IDX_XYZ::Y_Y];
+      sum.z += gyro.angular_velocity_covariance[COV_IDX_XYZ::Z_Z];
+      return sum;
+    });
+  gyro_covariance_original.x /= gyro_size;
+  gyro_covariance_original.y /= gyro_size;
+  gyro_covariance_original.z /= gyro_size;
 
   // concat
   geometry_msgs::msg::TwistWithCovarianceStamped twist_with_cov;
