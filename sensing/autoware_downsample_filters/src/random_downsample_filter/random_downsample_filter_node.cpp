@@ -66,6 +66,12 @@ RandomDownsampleFilter::RandomDownsampleFilter(const rclcpp::NodeOptions & optio
 
 void RandomDownsampleFilter::input_callback(const PointCloud2ConstPtr cloud)
 {
+  // Null pointer check for input cloud
+  if (!cloud) {
+    RCLCPP_ERROR(this->get_logger(), "[input_callback] Received null pointer for cloud data");
+    return;
+  }
+
   // If cloud is given, check if it's valid
   if (!is_valid(cloud)) {
     RCLCPP_ERROR(this->get_logger(), "[input_callback] Invalid input!");
@@ -81,38 +87,59 @@ void RandomDownsampleFilter::input_callback(const PointCloud2ConstPtr cloud)
   // Check whether the user has given a different input TF frame
   tf_input_orig_frame_ = cloud->header.frame_id;
   PointCloud2ConstPtr cloud_tf;
-  if (!tf_input_frame_.empty() && cloud->header.frame_id != tf_input_frame_) {
-    RCLCPP_DEBUG(
-      this->get_logger(), "[input_callback] Transforming input dataset from %s to %s.",
-      cloud->header.frame_id.c_str(), tf_input_frame_.c_str());
 
-    // Save the original frame ID
-    // Convert the cloud into the different frame
-    auto cloud_transformed = std::make_unique<PointCloud2>();
+  try {
+    if (!tf_input_frame_.empty() && cloud->header.frame_id != tf_input_frame_) {
+      RCLCPP_DEBUG(
+        this->get_logger(), "[input_callback] Transforming input dataset from %s to %s.",
+        cloud->header.frame_id.c_str(), tf_input_frame_.c_str());
 
-    auto tf_ptr = transform_listener_->get_transform(
-      tf_output_frame_, cloud_tf->header.frame_id, cloud_tf->header.stamp,
-      rclcpp::Duration::from_seconds(1.0));
-    if (!tf_ptr) {
-      RCLCPP_ERROR(
-        this->get_logger(), "[input_callback] Error converting output dataset from %s to %s.",
-        cloud_tf->header.frame_id.c_str(), tf_output_frame_.c_str());
+      // Save the original frame ID
+      // Convert the cloud into the different frame
+      auto cloud_transformed = std::make_unique<PointCloud2>();
+
+      // FIX: Use cloud->header instead of uninitialized cloud_tf->header
+      auto tf_ptr = transform_listener_->get_transform(
+        tf_input_frame_, cloud->header.frame_id, cloud->header.stamp,
+        rclcpp::Duration::from_seconds(1.0));
+      if (!tf_ptr) {
+        RCLCPP_ERROR(
+          this->get_logger(), "[input_callback] Error converting dataset from %s to %s.",
+          cloud->header.frame_id.c_str(), tf_input_frame_.c_str());
+        return;
+      }
+
+      auto eigen_tf = tf2::transformToEigen(*tf_ptr);
+      pcl_ros::transformPointCloud(eigen_tf.matrix().cast<float>(), *cloud, *cloud_transformed);
+      cloud_tf = std::move(cloud_transformed);
+
+    } else {
+      cloud_tf = cloud;
+    }
+
+    // Validation: ensure cloud_tf was properly assigned
+    if (!cloud_tf) {
+      RCLCPP_ERROR(this->get_logger(), "[input_callback] Failed to set cloud_tf");
       return;
     }
 
-    auto eigen_tf = tf2::transformToEigen(*tf_ptr);
-    pcl_ros::transformPointCloud(eigen_tf.matrix().cast<float>(), *cloud, *cloud_transformed);
-    cloud_tf = std::move(cloud_transformed);
-
-  } else {
-    cloud_tf = cloud;
+    compute_publish(cloud_tf);
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(
+      this->get_logger(), "[input_callback] Exception occurred during processing: %s", e.what());
+    return;
   }
-
-  compute_publish(cloud_tf);
 }
 
 bool RandomDownsampleFilter::is_valid(const PointCloud2ConstPtr & cloud)
 {
+  // Check for null pointer
+  if (!cloud) {
+    RCLCPP_WARN(this->get_logger(), "Invalid PointCloud: received null pointer");
+    return false;
+  }
+
+  // Validate point cloud data consistency
   if (cloud->width * cloud->height * cloud->point_step != cloud->data.size()) {
     RCLCPP_WARN(
       this->get_logger(),
@@ -127,16 +154,39 @@ bool RandomDownsampleFilter::is_valid(const PointCloud2ConstPtr & cloud)
 
 void RandomDownsampleFilter::compute_publish(const PointCloud2ConstPtr & input)
 {
-  auto output = std::make_unique<PointCloud2>();
-  filter(input, *output);
-  if (!convert_output_costly(output)) return;
+  // Validate input
+  if (!input) {
+    RCLCPP_ERROR(this->get_logger(), "[compute_publish] Received null pointer for input cloud");
+    return;
+  }
 
-  // Copy timestamp to keep it
-  output->header.stamp = input->header.stamp;
+  try {
+    auto output = std::make_unique<PointCloud2>();
+    filter(input, *output);
 
-  // Publish a boost shared ptr
-  pub_output_->publish(std::move(output));
-  published_time_publisher_->publish_if_subscribed(pub_output_, input->header.stamp);
+    if (!output) {
+      RCLCPP_ERROR(this->get_logger(), "[compute_publish] Filter produced null output");
+      return;
+    }
+
+    if (!convert_output_costly(output)) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "[compute_publish] Output frame conversion failed, skipping publication");
+      return;
+    }
+
+    // Copy timestamp to keep it
+    output->header.stamp = input->header.stamp;
+
+    // Publish a boost shared ptr
+    pub_output_->publish(std::move(output));
+    published_time_publisher_->publish_if_subscribed(pub_output_, input->header.stamp);
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(
+      this->get_logger(), "[compute_publish] Exception during compute_publish: %s", e.what());
+    return;
+  }
 }
 
 bool RandomDownsampleFilter::convert_output_costly(std::unique_ptr<PointCloud2> & output)
@@ -194,19 +244,41 @@ bool RandomDownsampleFilter::convert_output_costly(std::unique_ptr<PointCloud2> 
 
 void RandomDownsampleFilter::filter(const PointCloud2ConstPtr & input, PointCloud2 & output)
 {
-  std::scoped_lock lock(mutex_);
-  pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_input(new pcl::PointCloud<pcl::PointXYZ>);
-  pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_output(new pcl::PointCloud<pcl::PointXYZ>);
-  pcl::fromROSMsg(*input, *pcl_input);
-  pcl_output->points.reserve(pcl_input->points.size());
-  pcl::RandomSample<pcl::PointXYZ> filter;
-  filter.setInputCloud(pcl_input);
-  // filter.setSaveLeafLayout(true);
-  filter.setSample(sample_num_);
-  filter.filter(*pcl_output);
+  // Validate input pointer
+  if (!input) {
+    RCLCPP_ERROR(this->get_logger(), "[filter] Received null pointer for input cloud");
+    return;
+  }
 
-  pcl::toROSMsg(*pcl_output, output);
-  output.header = input->header;
+  try {
+    std::scoped_lock lock(mutex_);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_input(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_output(new pcl::PointCloud<pcl::PointXYZ>);
+
+    // Convert ROS message to PCL point cloud
+    pcl::fromROSMsg(*input, *pcl_input);
+
+    // Validate that conversion was successful
+    if (!pcl_input || pcl_input->empty()) {
+      RCLCPP_WARN(this->get_logger(), "[filter] PCL conversion resulted in empty point cloud");
+      output = *input;  // Pass through the original cloud if filtering fails
+      return;
+    }
+
+    pcl_output->points.reserve(pcl_input->points.size());
+    pcl::RandomSample<pcl::PointXYZ> filter;
+    filter.setInputCloud(pcl_input);
+    // filter.setSaveLeafLayout(true);
+    filter.setSample(sample_num_);
+    filter.filter(*pcl_output);
+
+    pcl::toROSMsg(*pcl_output, output);
+    output.header = input->header;
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(this->get_logger(), "[filter] Exception during filtering: %s", e.what());
+    // Graceful degradation: output the input cloud as-is if filtering fails
+    output = *input;
+  }
 }
 }  // namespace autoware::downsample_filters
 #include <rclcpp_components/register_node_macro.hpp>
