@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <memory>
 
 nav_msgs::msg::Odometry::SharedPtr createOdometryMessage(
@@ -81,8 +82,8 @@ TEST(StopFilterNodeTest, DISABLED_TestStopDetection)
   // Variable to hold received messages
   std::shared_ptr<nav_msgs::msg::Odometry> received_odom;
   std::shared_ptr<autoware_internal_debug_msgs::msg::BoolStamped> received_stop_flag;
-  bool odom_received = false;
-  bool stop_flag_received = false;
+  std::atomic<bool> odom_received{false};
+  std::atomic<bool> stop_flag_received{false};
   std::mutex msg_mutex;
 
   // Subscription to receive output messages
