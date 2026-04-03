@@ -19,6 +19,7 @@
 #include "include/string.hpp"
 #include "include/warning_message.hpp"
 
+#include <autoware/qos_utils/qos_compatibility.hpp>
 #include <autoware_utils_geometry/geometry.hpp>
 #include <autoware_utils_logging/logger_level_configure.hpp>
 #include <rclcpp/duration.hpp>
@@ -85,11 +86,7 @@ EKFLocalizer::EKFLocalizer(const rclcpp::NodeOptions & node_options)
   sub_twist_with_cov_ = create_subscription<geometry_msgs::msg::TwistWithCovarianceStamped>(
     "in_twist_with_covariance", 1,
     std::bind(&EKFLocalizer::callback_twist_with_covariance, this, _1));
-#if ROS_DISTRO_HUMBLE
-  const auto service_trigger_qos = rclcpp::ServicesQoS().get_rmw_qos_profile();
-#else
-  const auto service_trigger_qos = rclcpp::ServicesQoS();
-#endif
+  const auto service_trigger_qos = AUTOWARE_DEFAULT_SERVICES_QOS_PROFILE();
   service_trigger_node_ = create_service<std_srvs::srv::SetBool>(
     "trigger_node_srv",
     std::bind(
