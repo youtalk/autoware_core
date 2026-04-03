@@ -19,7 +19,7 @@
 
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
@@ -42,7 +42,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_pointcloud_map_;
 
   [[nodiscard]] sensor_msgs::msg::PointCloud2 load_pcd_files(
-    const std::vector<std::string> & pcd_paths, const boost::optional<float> leaf_size) const;
+    const std::vector<std::string> & pcd_paths, const std::optional<float> leaf_size) const;
 };
 }  // namespace autoware::map_loader
 

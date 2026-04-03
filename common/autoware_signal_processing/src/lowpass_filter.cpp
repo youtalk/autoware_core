@@ -27,10 +27,10 @@ geometry_msgs::msg::Twist LowpassFilterTwist::filter(const geometry_msgs::msg::T
     x_->angular.y = gain_ * x_->angular.y + (1.0 - gain_) * u.angular.y;
     x_->angular.z = gain_ * x_->angular.z + (1.0 - gain_) * u.angular.z;
 
-    return x_.get();
+    return *x_;
   }
 
   x_ = u;
-  return x_.get();
+  return *x_;
 }
 }  // namespace autoware::signal_processing

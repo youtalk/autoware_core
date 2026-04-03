@@ -40,7 +40,7 @@ void LowpassFilter1d::setGain(const double gain)
   gain_ = gain;
 }
 
-boost::optional<double> LowpassFilter1d::getValue() const
+std::optional<double> LowpassFilter1d::getValue() const
 {
   return x_;
 }
@@ -48,12 +48,12 @@ boost::optional<double> LowpassFilter1d::getValue() const
 double LowpassFilter1d::filter(const double u)
 {
   if (x_) {
-    const double ret = gain_ * x_.get() + (1.0 - gain_) * u;
+    const double ret = gain_ * (*x_) + (1.0 - gain_) * u;
     x_ = ret;
-    return x_.get();
+    return *x_;
   }
 
   x_ = u;
-  return x_.get();
+  return *x_;
 }
 }  // namespace autoware::signal_processing

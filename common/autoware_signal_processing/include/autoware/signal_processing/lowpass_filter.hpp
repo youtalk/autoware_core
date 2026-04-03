@@ -29,8 +29,8 @@ template <typename T>
 class LowpassFilterInterface
 {
 protected:
-  boost::optional<T> x_;  //!< @brief current filtered value
-  double gain_;           //!< @brief gain value of first-order low-pass filter
+  std::optional<T> x_;  //!< @brief current filtered value
+  double gain_;         //!< @brief gain value of first-order low-pass filter
 
 public:
   explicit LowpassFilterInterface(const double gain) : gain_(gain) {}
@@ -38,7 +38,7 @@ public:
   void reset() { x_ = {}; }
   void reset(const T & x) { x_ = x; }
 
-  boost::optional<T> getValue() const { return x_; }
+  std::optional<T> getValue() const { return x_; }
 
   virtual T filter(const T & u) = 0;
 };

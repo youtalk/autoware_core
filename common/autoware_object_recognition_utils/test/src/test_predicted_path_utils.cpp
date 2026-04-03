@@ -17,8 +17,6 @@
 #include <autoware_utils_geometry/geometry.hpp>
 #include <autoware_utils_math/unit_conversion.hpp>
 
-#include <boost/optional/optional_io.hpp>
-
 #include <gtest/gtest.h>
 
 #include <vector>

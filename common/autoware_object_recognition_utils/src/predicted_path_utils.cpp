@@ -23,12 +23,12 @@
 
 namespace autoware::object_recognition_utils
 {
-boost::optional<geometry_msgs::msg::Pose> calcInterpolatedPose(
+std::optional<geometry_msgs::msg::Pose> calcInterpolatedPose(
   const autoware_perception_msgs::msg::PredictedPath & path, const double relative_time)
 {
   // Check if relative time is in the valid range
   if (path.path.empty() || relative_time < 0.0) {
-    return boost::none;
+    return std::nullopt;
   }
 
   constexpr double epsilon = 1e-6;
@@ -43,7 +43,7 @@ boost::optional<geometry_msgs::msg::Pose> calcInterpolatedPose(
     }
   }
 
-  return boost::none;
+  return std::nullopt;
 }
 
 autoware_perception_msgs::msg::PredictedPath resamplePredictedPath(

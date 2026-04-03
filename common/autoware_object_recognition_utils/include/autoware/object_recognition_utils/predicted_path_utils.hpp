@@ -20,8 +20,7 @@
 #include <autoware_perception_msgs/msg/predicted_path.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 
-#include <boost/optional.hpp>
-
+#include <optional>
 #include <vector>
 
 namespace autoware::object_recognition_utils
@@ -33,7 +32,7 @@ namespace autoware::object_recognition_utils
  * time_step*(num_of_path_points)]
  * @return interpolated pose
  */
-boost::optional<geometry_msgs::msg::Pose> calcInterpolatedPose(
+std::optional<geometry_msgs::msg::Pose> calcInterpolatedPose(
   const autoware_perception_msgs::msg::PredictedPath & path, const double relative_time);
 
 /**

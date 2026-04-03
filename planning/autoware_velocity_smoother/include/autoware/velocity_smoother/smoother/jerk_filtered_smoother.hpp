@@ -24,8 +24,6 @@
 
 #include "autoware_planning_msgs/msg/trajectory_point.hpp"
 
-#include "boost/optional.hpp"
-
 #include <memory>
 #include <vector>
 

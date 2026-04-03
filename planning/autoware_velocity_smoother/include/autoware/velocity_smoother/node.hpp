@@ -49,6 +49,7 @@
 
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -111,8 +112,8 @@ private:
   TrajectoryPoints prev_output_;  // previously published trajectory
 
   // previous trajectory point closest to ego vehicle
-  boost::optional<TrajectoryPoint> prev_closest_point_{};
-  boost::optional<TrajectoryPoint> current_closest_point_from_prev_output_{};
+  std::optional<TrajectoryPoint> prev_closest_point_{};
+  std::optional<TrajectoryPoint> current_closest_point_from_prev_output_{};
 
   bool is_reverse_;
 

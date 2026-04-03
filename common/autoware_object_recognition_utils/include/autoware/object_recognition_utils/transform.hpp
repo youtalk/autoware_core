@@ -25,13 +25,12 @@
 #include <sensor_msgs/msg/point_field.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
-#include <boost/optional.hpp>
-
+#include <optional>
 #include <string>
 
 namespace detail
 {
-[[maybe_unused]] inline boost::optional<geometry_msgs::msg::Transform> getTransform(
+[[maybe_unused]] inline std::optional<geometry_msgs::msg::Transform> getTransform(
   const tf2_ros::Buffer & tf_buffer, const std::string & source_frame_id,
   const std::string & target_frame_id, const rclcpp::Time & time)
 {
@@ -42,11 +41,11 @@ namespace detail
     return self_transform_stamped.transform;
   } catch (tf2::TransformException & ex) {
     RCLCPP_WARN_STREAM(rclcpp::get_logger("object_recognition_utils"), ex.what());
-    return boost::none;
+    return std::nullopt;
   }
 }
 
-[[maybe_unused]] inline boost::optional<Eigen::Matrix4f> getTransformMatrix(
+[[maybe_unused]] inline std::optional<Eigen::Matrix4f> getTransformMatrix(
   const std::string & in_target_frame, const std_msgs::msg::Header & in_cloud_header,
   const tf2_ros::Buffer & tf_buffer)
 {
@@ -59,7 +58,7 @@ namespace detail
     return mat;
   } catch (tf2::TransformException & e) {
     RCLCPP_WARN_STREAM(rclcpp::get_logger("detail::getTransformMatrix"), e.what());
-    return boost::none;
+    return std::nullopt;
   }
 }
 }  // namespace detail
