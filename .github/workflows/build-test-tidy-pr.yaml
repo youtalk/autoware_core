@@ -64,6 +64,8 @@ jobs:
       rosdistro: humble
       container: ghcr.io/autowarefoundation/autoware:core-dependencies-humble
       above: false
+      # 16-vCPU Ubicloud runner only on youtalk's own fork PRs; ubuntu-latest otherwise.
+      runner: ${{ (github.repository_owner == 'youtalk' && github.actor == 'youtalk') && '["ubicloud-standard-16"]' || '["ubuntu-latest"]' }}
       run-condition: ${{ needs.require-label.outputs.result == 'true' }}
     secrets:
       codecov-token: ${{ secrets.CODECOV_TOKEN }}
@@ -91,6 +93,8 @@ jobs:
       rosdistro: jazzy
       container: ghcr.io/autowarefoundation/autoware:core-dependencies-jazzy
       above: false
+      # 16-vCPU Ubicloud runner only on youtalk's own fork PRs; ubuntu-latest otherwise.
+      runner: ${{ (github.repository_owner == 'youtalk' && github.actor == 'youtalk') && '["ubicloud-standard-16"]' || '["ubuntu-latest"]' }}
       run-condition: ${{ needs.require-label.outputs.result == 'true' }}
     secrets:
       codecov-token: ${{ secrets.CODECOV_TOKEN }}
@@ -105,6 +109,8 @@ jobs:
       container: ghcr.io/autowarefoundation/autoware:core-dependencies-jazzy
       above: false
       enable-agnocast: true
+      # 16-vCPU Ubicloud runner only on youtalk's own fork PRs; ubuntu-latest otherwise.
+      runner: ${{ (github.repository_owner == 'youtalk' && github.actor == 'youtalk') && '["ubicloud-standard-16"]' || '["ubuntu-latest"]' }}
       run-condition: ${{ needs.require-label.outputs.result == 'true' }}
     secrets:
       codecov-token: ${{ secrets.CODECOV_TOKEN }}
