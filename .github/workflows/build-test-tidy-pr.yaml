@@ -77,7 +77,8 @@ jobs:
     uses: ./.github/workflows/build-and-test-diff-reusable.yaml
     with:
       rosdistro: humble
-      runner: "['self-hosted', 'Linux', 'X64']"
+      # 16-vCPU Ubicloud runner only on youtalk's own fork PRs; self-hosted otherwise.
+      runner: ${{ (github.repository_owner == 'youtalk' && github.actor == 'youtalk') && '["ubicloud-standard-16"]' || '["self-hosted", "Linux", "X64"]' }}
       container: ghcr.io/autowarefoundation/autoware:universe-dependencies-humble
       above: true
       run-condition: ${{ needs.require-label.outputs.result == 'true' }}
@@ -122,7 +123,8 @@ jobs:
     uses: ./.github/workflows/build-and-test-diff-reusable.yaml
     with:
       rosdistro: jazzy
-      runner: "['self-hosted', 'Linux', 'X64']"
+      # 16-vCPU Ubicloud runner only on youtalk's own fork PRs; self-hosted otherwise.
+      runner: ${{ (github.repository_owner == 'youtalk' && github.actor == 'youtalk') && '["ubicloud-standard-16"]' || '["self-hosted", "Linux", "X64"]' }}
       container: ghcr.io/autowarefoundation/autoware:universe-dependencies-jazzy
       above: true
       run-condition: ${{ needs.require-label.outputs.result == 'true' }}
