@@ -26,9 +26,9 @@
 
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -140,21 +140,37 @@ std::optional<double> calc_distance_to_front_object(
   return ego_to_obstacle_distance;
 }
 
-std::vector<uint8_t> get_target_object_type(rclcpp::Node & node, const std::string & param_prefix)
+std::vector<uint8_t> classification_types_from_flags(
+  const std::map<std::string, bool> & enabled_flags)
 {
-  std::unordered_map<std::string, uint8_t> types_map{
+  // Fixed, deterministic ordering of the supported class names so the output order does not depend
+  // on iteration order of the input map.
+  static const std::vector<std::pair<std::string, uint8_t>> class_name_to_type{
     {"unknown", ObjectClassification::UNKNOWN}, {"car", ObjectClassification::CAR},
     {"truck", ObjectClassification::TRUCK},     {"bus", ObjectClassification::BUS},
     {"trailer", ObjectClassification::TRAILER}, {"motorcycle", ObjectClassification::MOTORCYCLE},
     {"bicycle", ObjectClassification::BICYCLE}, {"pedestrian", ObjectClassification::PEDESTRIAN}};
 
   std::vector<uint8_t> types;
-  for (const auto & type : types_map) {
-    if (node.declare_parameter<bool>(param_prefix + type.first)) {
-      types.push_back(type.second);
+  for (const auto & [name, type] : class_name_to_type) {
+    const auto it = enabled_flags.find(name);
+    if (it != enabled_flags.end() && it->second) {
+      types.push_back(type);
     }
   }
   return types;
+}
+
+std::vector<uint8_t> get_target_object_type(rclcpp::Node & node, const std::string & param_prefix)
+{
+  static const std::vector<std::string> class_names{
+    "unknown", "car", "truck", "bus", "trailer", "motorcycle", "bicycle", "pedestrian"};
+
+  std::map<std::string, bool> enabled_flags;
+  for (const auto & name : class_names) {
+    enabled_flags.emplace(name, node.declare_parameter<bool>(param_prefix + name));
+  }
+  return classification_types_from_flags(enabled_flags);
 }
 
 double calc_object_possible_max_dist_from_center(const Shape & shape)

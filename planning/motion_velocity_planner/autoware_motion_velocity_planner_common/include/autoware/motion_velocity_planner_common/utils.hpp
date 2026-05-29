@@ -21,6 +21,7 @@
 #include <autoware_utils_geometry/geometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -79,6 +80,20 @@ std::optional<T> get_obstacle_from_uuid(const std::vector<T> & obstacles, const 
   }
   return *itr;
 }
+
+/**
+ * @brief map a set of per-class enable flags to their corresponding
+ * autoware_perception_msgs::msg::ObjectClassification values
+ * @param enabled_flags map keyed by lower-case class name
+ * ("unknown"/"car"/"truck"/"bus"/"trailer"/"motorcycle"/"bicycle"/"pedestrian") to a boolean that
+ * indicates whether the class is targeted
+ * @return classification values for the flags that are set to true; entries with unknown class
+ * names are ignored
+ * @details pure helper extracted from get_target_object_type so the string->classification mapping
+ * can be unit tested without a live node
+ */
+std::vector<uint8_t> classification_types_from_flags(
+  const std::map<std::string, bool> & enabled_flags);
 
 std::vector<uint8_t> get_target_object_type(rclcpp::Node & node, const std::string & param_prefix);
 
