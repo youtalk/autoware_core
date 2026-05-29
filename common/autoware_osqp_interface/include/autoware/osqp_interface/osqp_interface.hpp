@@ -24,6 +24,7 @@
 
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -31,6 +32,20 @@
 namespace autoware::osqp_interface
 {
 constexpr c_float INF = 1e30;
+
+namespace detail
+{
+/// \brief Build the warning message logged by OSQPInterface::logUnsolvedStatus.
+/// \param status The OSQP solution status value (1 means "solved").
+/// \param status_message Human-readable status string from the solver.
+/// \param prefix_message Optional prefix prepended to the message.
+/// \return std::nullopt when the problem was solved (status == 1), otherwise the
+///         message string that would be logged as a warning.
+/// \details This is a pure free function so the message-construction logic can be
+///          unit-tested without a live ROS logger.
+OSQP_INTERFACE_PUBLIC std::optional<std::string> build_unsolved_status_message(
+  const int status, const std::string & status_message, const std::string & prefix_message);
+}  // namespace detail
 
 struct OSQPResult
 {

@@ -21,12 +21,35 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <vector>
 
 namespace autoware::osqp_interface
 {
+namespace detail
+{
+std::optional<std::string> build_unsolved_status_message(
+  const int status, const std::string & status_message, const std::string & prefix_message)
+{
+  if (status == 1) {
+    // No need to log since optimization was solved.
+    return std::nullopt;
+  }
+
+  // create message
+  std::string output_message = "";
+  if (prefix_message != "") {
+    output_message = prefix_message + " ";
+  }
+
+  output_message += "Optimization failed due to " + status_message;
+
+  return output_message;
+}
+}  // namespace detail
+
 OSQPInterface::OSQPInterface(const c_float eps_abs, const bool polish)
 : m_work{nullptr, OSQPWorkspaceDeleter}
 {
@@ -417,21 +440,14 @@ OSQPResult OSQPInterface::optimize(
 void OSQPInterface::logUnsolvedStatus(const std::string & prefix_message) const
 {
   const int status = static_cast<int>(getStatus());
-  if (status == 1) {
+  const auto output_message =
+    detail::build_unsolved_status_message(status, getStatusMessage(), prefix_message);
+  if (!output_message) {
     // No need to log since optimization was solved.
     return;
   }
 
-  // create message
-  std::string output_message = "";
-  if (prefix_message != "") {
-    output_message = prefix_message + " ";
-  }
-
-  const auto status_message = getStatusMessage();
-  output_message += "Optimization failed due to " + status_message;
-
   // log with warning
-  RCLCPP_WARN(rclcpp::get_logger("osqp_interface"), "%s", output_message.c_str());
+  RCLCPP_WARN(rclcpp::get_logger("osqp_interface"), "%s", output_message->c_str());
 }
 }  // namespace autoware::osqp_interface
