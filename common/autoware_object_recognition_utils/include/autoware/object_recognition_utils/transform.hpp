@@ -21,6 +21,7 @@
 #include <tf2_ros/transform_listener.hpp>
 
 #include <geometry_msgs/msg/transform.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/point_field.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -29,9 +30,11 @@
 
 #include <string>
 
+namespace autoware::object_recognition_utils
+{
 namespace detail
 {
-[[maybe_unused]] inline boost::optional<geometry_msgs::msg::Transform> getTransform(
+inline boost::optional<geometry_msgs::msg::Transform> getTransform(
   const tf2_ros::Buffer & tf_buffer, const std::string & source_frame_id,
   const std::string & target_frame_id, const rclcpp::Time & time)
 {
@@ -46,7 +49,7 @@ namespace detail
   }
 }
 
-[[maybe_unused]] inline boost::optional<Eigen::Matrix4f> getTransformMatrix(
+inline boost::optional<Eigen::Matrix4f> getTransformMatrix(
   const std::string & in_target_frame, const std_msgs::msg::Header & in_cloud_header,
   const tf2_ros::Buffer & tf_buffer)
 {
@@ -62,10 +65,61 @@ namespace detail
     return boost::none;
   }
 }
+
+/// \brief Apply a resolved frame transform to every object in \p input_msg, writing the
+///        result into \p output_msg.
+/// \details Pure math: composes the per-object pose with \p tf_target2objects_world and rotates
+///          the pose covariance by the same transform. No TF buffer lookup happens here, so it is
+///          unit-testable with a hand-built transform.
+template <class T>
+void applyTransformToObjects(
+  const T & input_msg, const std::string & target_frame_id,
+  const tf2::Transform & tf_target2objects_world, T & output_msg)
+{
+  output_msg = input_msg;
+  output_msg.header.frame_id = target_frame_id;
+  for (auto & object : output_msg.objects) {
+    tf2::Transform tf_objects_world2objects;
+    auto & pose_with_cov = object.kinematics.pose_with_covariance;
+    tf2::fromMsg(pose_with_cov.pose, tf_objects_world2objects);
+    tf2::Transform tf_target2objects = tf_target2objects_world * tf_objects_world2objects;
+    // transform pose, frame difference and object pose
+    tf2::toMsg(tf_target2objects, pose_with_cov.pose);
+    // transform covariance, only the frame difference
+    pose_with_cov.covariance =
+      tf2::transformCovariance(pose_with_cov.covariance, tf_target2objects_world);
+  }
+}
+
+/// \brief Apply resolved frame transforms to every feature object in \p input_msg, writing the
+///        result into \p output_msg.
+/// \details Pure math: composes the per-object pose with \p tf_target2objects_world and transforms
+///          each cluster point cloud by \p tf_matrix. No TF buffer lookup happens here, so it is
+///          unit-testable with a hand-built transform.
+template <class T>
+void applyTransformToFeatureObjects(
+  const T & input_msg, const std::string & target_frame_id,
+  const tf2::Transform & tf_target2objects_world, const Eigen::Matrix4f & tf_matrix, T & output_msg)
+{
+  output_msg = input_msg;
+  output_msg.header.frame_id = target_frame_id;
+  for (auto & feature_object : output_msg.feature_objects) {
+    tf2::Transform tf_objects_world2objects;
+    // transform object
+    tf2::fromMsg(
+      feature_object.object.kinematics.pose_with_covariance.pose, tf_objects_world2objects);
+    tf2::Transform tf_target2objects = tf_target2objects_world * tf_objects_world2objects;
+    tf2::toMsg(tf_target2objects, feature_object.object.kinematics.pose_with_covariance.pose);
+
+    // transform cluster
+    sensor_msgs::msg::PointCloud2 transformed_cluster;
+    pcl_ros::transformPointCloud(tf_matrix, feature_object.feature.cluster, transformed_cluster);
+    transformed_cluster.header.frame_id = target_frame_id;
+    feature_object.feature.cluster = transformed_cluster;
+  }
+}
 }  // namespace detail
 
-namespace autoware::object_recognition_utils
-{
 template <class T>
 bool transformObjects(
   const T & input_msg, const std::string & target_frame_id, const tf2_ros::Buffer & tf_buffer,
@@ -75,6 +129,8 @@ bool transformObjects(
 
   // transform to world coordinate
   if (input_msg.header.frame_id != target_frame_id) {
+    // Set the target frame on the output up front, so a failed lookup still reports the requested
+    // frame on the (otherwise unused) output message, matching the original behavior.
     output_msg.header.frame_id = target_frame_id;
     tf2::Transform tf_target2objects_world;
     {
@@ -85,17 +141,8 @@ bool transformObjects(
       }
       tf2::fromMsg(*ros_target2objects_world, tf_target2objects_world);
     }
-    for (auto & object : output_msg.objects) {
-      tf2::Transform tf_objects_world2objects;
-      auto & pose_with_cov = object.kinematics.pose_with_covariance;
-      tf2::fromMsg(pose_with_cov.pose, tf_objects_world2objects);
-      tf2::Transform tf_target2objects = tf_target2objects_world * tf_objects_world2objects;
-      // transform pose, frame difference and object pose
-      tf2::toMsg(tf_target2objects, pose_with_cov.pose);
-      // transform covariance, only the frame difference
-      pose_with_cov.covariance =
-        tf2::transformCovariance(pose_with_cov.covariance, tf_target2objects_world);
-    }
+    detail::applyTransformToObjects(
+      input_msg, target_frame_id, tf_target2objects_world, output_msg);
   }
   return true;
 }
@@ -106,8 +153,10 @@ bool transformObjectsWithFeature(
 {
   output_msg = input_msg;
   if (input_msg.header.frame_id != target_frame_id) {
+    // Set the target frame on the output up front, so a failed lookup still reports the requested
+    // frame on the (otherwise unused) output message, matching the original behavior.
     output_msg.header.frame_id = target_frame_id;
-    tf2::Transform tf_target2objects_world = tf2::Transform::getIdentity();
+    tf2::Transform tf_target2objects_world;
     const auto ros_target2objects_world = detail::getTransform(
       tf_buffer, input_msg.header.frame_id, target_frame_id, input_msg.header.stamp);
     if (!ros_target2objects_world) {
@@ -120,22 +169,8 @@ bool transformObjectsWithFeature(
         rclcpp::get_logger("object_recognition_utils:"), "failed to get transformed matrix");
       return false;
     }
-    for (auto & feature_object : output_msg.feature_objects) {
-      tf2::Transform tf_objects_world2objects;
-      // transform object
-      tf2::fromMsg(
-        feature_object.object.kinematics.pose_with_covariance.pose, tf_objects_world2objects);
-      tf2::Transform tf_target2objects = tf_target2objects_world * tf_objects_world2objects;
-      tf2::toMsg(tf_target2objects, feature_object.object.kinematics.pose_with_covariance.pose);
-
-      // transform cluster
-      sensor_msgs::msg::PointCloud2 transformed_cluster;
-      pcl_ros::transformPointCloud(*tf_matrix, feature_object.feature.cluster, transformed_cluster);
-      transformed_cluster.header.frame_id = target_frame_id;
-      feature_object.feature.cluster = transformed_cluster;
-    }
-    output_msg.header.frame_id = target_frame_id;
-    return true;
+    detail::applyTransformToFeatureObjects(
+      input_msg, target_frame_id, tf_target2objects_world, *tf_matrix, output_msg);
   }
   return true;
 }
