@@ -19,6 +19,7 @@
 #include <iomanip>
 #include <numeric>
 #include <sstream>
+#include <string>
 #include <vector>
 
 namespace autoware::signal_processing
@@ -167,7 +168,7 @@ std::vector<std::complex<double>> ButterworthFilter::poly(
  *  @brief Prints the order and cut-off angular frequency (rad/sec) of the filter
  * */
 
-void ButterworthFilter::printFilterContinuousTimeRoots() const
+std::string ButterworthFilter::filterContinuousTimeRootsAsString() const
 {
   std::stringstream stream;
   stream << "\n The roots of the continuous-time filter Transfer Function's Denominator are : \n";
@@ -179,14 +180,15 @@ void ButterworthFilter::printFilterContinuousTimeRoots() const
     stream << std::fixed << std::setprecision(2) << txt << std::abs(std::imag(x)) << " \n";
   }
 
-  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "%s", stream.str().c_str());
+  return stream.str();
 }
-void ButterworthFilter::printContinuousTimeTF() const
+void ButterworthFilter::printFilterContinuousTimeRoots() const
+{
+  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "%s", filterContinuousTimeRootsAsString().c_str());
+}
+std::string ButterworthFilter::continuousTimeTFAsString() const
 {
   const auto & n = filter_specs_.N;
-
-  RCLCPP_INFO(
-    rclcpp::get_logger("rclcpp"), "\nThe Continuous Time Transfer Function of the Filter is ;\n");
 
   std::stringstream stream;
   stream << std::fixed << std::setprecision(2) << ct_tf_.continuous_time_numerator_ << " / \n";
@@ -198,8 +200,14 @@ void ButterworthFilter::printContinuousTimeTF() const
 
   stream << std::fixed << std::setprecision(2) << ct_tf_.continuous_time_denominator_[n].real();
 
-  const auto & tf_text = stream.str();
-  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "[%s]", tf_text.c_str());
+  return stream.str();
+}
+void ButterworthFilter::printContinuousTimeTF() const
+{
+  RCLCPP_INFO(
+    rclcpp::get_logger("rclcpp"), "\nThe Continuous Time Transfer Function of the Filter is ;\n");
+
+  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "[%s]", continuousTimeTFAsString().c_str());
 }
 
 // cspell: ignore dend
@@ -294,7 +302,7 @@ void ButterworthFilter::computeDiscreteTimeTF(const bool & use_sampling_frequenc
     An_[i] = dd.real();
   }
 }
-void ButterworthFilter::printDiscreteTimeTF() const
+std::string ButterworthFilter::discreteTimeTFAsString() const
 {
   const int & n = filter_specs_.N;
 
@@ -316,7 +324,11 @@ void ButterworthFilter::printDiscreteTimeTF() const
   stream << std::fixed << std::setprecision(2) << dt_tf_.discrete_time_denominator_[n].real()
          << " \n\n";
 
-  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "[%s]", stream.str().c_str());
+  return stream.str();
+}
+void ButterworthFilter::printDiscreteTimeTF() const
+{
+  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "[%s]", discreteTimeTFAsString().c_str());
 }
 std::vector<double> ButterworthFilter::getAn() const
 {
@@ -331,6 +343,15 @@ sDifferenceAnBn ButterworthFilter::getAnBn() const
   return AnBn_;
 }
 
+std::string ButterworthFilter::filterSpecsAsString() const
+{
+  std::stringstream stream;
+  stream << "The order of the filter : " << filter_specs_.N << " \n";
+  stream << "Cut-off Frequency : " << std::fixed << std::setprecision(2) << filter_specs_.Wc_rad_sec
+         << " rad/sec";
+
+  return stream.str();
+}
 void ButterworthFilter::printFilterSpecs() const
 {
   /**
@@ -338,10 +359,6 @@ void ButterworthFilter::printFilterSpecs() const
    *
    * */
 
-  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "The order of the filter : %d ", this->filter_specs_.N);
-
-  RCLCPP_INFO(
-    rclcpp::get_logger("rclcpp"), "Cut-off Frequency : %2.2f rad/sec",
-    this->filter_specs_.Wc_rad_sec);
+  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "%s", filterSpecsAsString().c_str());
 }
 }  // namespace autoware::signal_processing

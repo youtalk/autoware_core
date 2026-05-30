@@ -19,6 +19,7 @@
 #include <complex>
 #include <iomanip>
 #include <iostream>
+#include <string>
 #include <vector>
 
 namespace autoware::signal_processing
@@ -59,6 +60,13 @@ public:
 
   void printContinuousTimeTF() const;
   void printDiscreteTimeTF() const;
+
+  // String builders used by the print* methods above. Exposed so the formatting logic can be
+  // unit-tested without capturing a logger; the print* methods simply log these strings.
+  [[nodiscard]] std::string filterSpecsAsString() const;
+  [[nodiscard]] std::string filterContinuousTimeRootsAsString() const;
+  [[nodiscard]] std::string continuousTimeTFAsString() const;
+  [[nodiscard]] std::string discreteTimeTFAsString() const;
 
   void Buttord(double const & Wp, double const & Ws, double const & Ap, double const & As);
 
