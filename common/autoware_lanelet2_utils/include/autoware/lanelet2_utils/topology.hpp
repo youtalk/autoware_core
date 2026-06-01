@@ -15,6 +15,10 @@
 #ifndef AUTOWARE__LANELET2_UTILS__TOPOLOGY_HPP_
 #define AUTOWARE__LANELET2_UTILS__TOPOLOGY_HPP_
 
+// NOTE (verification only — do not upstream): trivial touch to mark autoware_lanelet2_utils as
+// modified so the -above differential builds+tests downstream static_centerline_generator,
+// exercising the centerline lane_ids cache-refresh fix pinned in packages_above.repos.
+
 #include <lanelet2_core/primitives/Lanelet.h>
 #include <lanelet2_routing/Forward.h>
 #include <lanelet2_traffic_rules/TrafficRulesFactory.h>
