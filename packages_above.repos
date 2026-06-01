@@ -76,5 +76,9 @@ repositories:
   # Tools
   tools/autoware_tools:
     type: git
-    url: https://github.com/autowarefoundation/autoware_tools.git
-    version: main
+    # TEMP (verification only — do not merge / do not upstream): youtalk fork branch carrying the
+    # centerline lane_ids cache-refresh fix, so the -above static_centerline_generator GUI launch
+    # test (a downstream consumer of autoware_planning_factor_interface) goes green and actually
+    # exercises the new const-ref get_factors() signature end-to-end. See youtalk/autoware_core#62.
+    url: https://github.com/youtalk/autoware_tools.git
+    version: fix/static_centerline_lane_ids_cache
