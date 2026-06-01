@@ -76,5 +76,7 @@ repositories:
   # Tools
   tools/autoware_tools:
     type: git
-    url: https://github.com/autowarefoundation/autoware_tools.git
-    version: main
+    # TEMP (verification only — do not upstream): point at youtalk fork branch carrying the
+    # static_centerline_generator headless-GUI test fix to confirm PR#39's -above goes green.
+    url: https://github.com/youtalk/autoware_tools.git
+    version: fix/static_centerline_generator_gui_offscreen
