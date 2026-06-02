@@ -48,6 +48,21 @@ TrajectoryPoint extend_trajectory_point(
   return extended_trajectory_point;
 }
 
+// Single source of truth for the supported object class names and their classification types.
+// Both classification_types_from_flags() and get_target_object_type() derive from this list so the
+// declared parameters and the returned mapping can never drift apart.
+// Fixed, deterministic ordering so the output order does not depend on iteration order of any
+// input.
+const std::vector<std::pair<std::string, uint8_t>> & supported_class_name_to_type()
+{
+  static const std::vector<std::pair<std::string, uint8_t>> class_name_to_type{
+    {"unknown", ObjectClassification::UNKNOWN}, {"car", ObjectClassification::CAR},
+    {"truck", ObjectClassification::TRUCK},     {"bus", ObjectClassification::BUS},
+    {"trailer", ObjectClassification::TRAILER}, {"motorcycle", ObjectClassification::MOTORCYCLE},
+    {"bicycle", ObjectClassification::BICYCLE}, {"pedestrian", ObjectClassification::PEDESTRIAN}};
+  return class_name_to_type;
+}
+
 }  // namespace
 
 std::vector<TrajectoryPoint> get_extended_trajectory_points(
@@ -143,16 +158,8 @@ std::optional<double> calc_distance_to_front_object(
 std::vector<uint8_t> classification_types_from_flags(
   const std::map<std::string, bool> & enabled_flags)
 {
-  // Fixed, deterministic ordering of the supported class names so the output order does not depend
-  // on iteration order of the input map.
-  static const std::vector<std::pair<std::string, uint8_t>> class_name_to_type{
-    {"unknown", ObjectClassification::UNKNOWN}, {"car", ObjectClassification::CAR},
-    {"truck", ObjectClassification::TRUCK},     {"bus", ObjectClassification::BUS},
-    {"trailer", ObjectClassification::TRAILER}, {"motorcycle", ObjectClassification::MOTORCYCLE},
-    {"bicycle", ObjectClassification::BICYCLE}, {"pedestrian", ObjectClassification::PEDESTRIAN}};
-
   std::vector<uint8_t> types;
-  for (const auto & [name, type] : class_name_to_type) {
+  for (const auto & [name, type] : supported_class_name_to_type()) {
     const auto it = enabled_flags.find(name);
     if (it != enabled_flags.end() && it->second) {
       types.push_back(type);
@@ -163,11 +170,9 @@ std::vector<uint8_t> classification_types_from_flags(
 
 std::vector<uint8_t> get_target_object_type(rclcpp::Node & node, const std::string & param_prefix)
 {
-  static const std::vector<std::string> class_names{
-    "unknown", "car", "truck", "bus", "trailer", "motorcycle", "bicycle", "pedestrian"};
-
   std::map<std::string, bool> enabled_flags;
-  for (const auto & name : class_names) {
+  for (const auto & name_to_type : supported_class_name_to_type()) {
+    const auto & name = name_to_type.first;
     enabled_flags.emplace(name, node.declare_parameter<bool>(param_prefix + name));
   }
   return classification_types_from_flags(enabled_flags);

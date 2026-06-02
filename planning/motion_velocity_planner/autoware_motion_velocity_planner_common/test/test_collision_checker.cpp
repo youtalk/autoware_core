@@ -198,7 +198,7 @@ Polygon2d make_square(const double x, const double y, const double size = 1.0)
 }
 }  // namespace
 
-TEST(TestCollisionChecker, TrajectorySizeAndEmptyRtree)
+TEST(TestCollisionChecker, TrajectorySizeAndRtreePopulatedFromFootprints)
 {
   MultiPolygon2d footprints;
   footprints.push_back(make_square(0.0, 0.0));
