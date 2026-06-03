@@ -205,6 +205,41 @@ TEST(TestCscMatrixConv, NearZeroPruning)
   EXPECT_EQ(square_csc.m_col_idxs[1], c_int(0));
   EXPECT_EQ(square_csc.m_col_idxs[2], c_int(1));
 }
+TEST(TestCscMatrixConv, EmptyMatrix)
+{
+  using autoware::osqp_interface::calCSCMatrix;
+  using autoware::osqp_interface::calCSCMatrixTrapezoidal;
+  using autoware::osqp_interface::CSC_Matrix;
+
+  // 0x0 matrix: the column loop never runs, so vals/row_idxs stay empty and only the leading
+  // col_idxs sentinel {0} remains.
+  {
+    const CSC_Matrix csc = calCSCMatrix(Eigen::MatrixXd(0, 0));
+    EXPECT_TRUE(csc.m_vals.empty());
+    EXPECT_TRUE(csc.m_row_idxs.empty());
+    ASSERT_EQ(csc.m_col_idxs.size(), size_t(1));
+    EXPECT_EQ(csc.m_col_idxs[0], c_int(0));
+  }
+
+  // Zero-column matrix with non-zero rows: still no columns to iterate, same postcondition.
+  {
+    const CSC_Matrix csc = calCSCMatrix(Eigen::MatrixXd(3, 0));
+    EXPECT_TRUE(csc.m_vals.empty());
+    EXPECT_TRUE(csc.m_row_idxs.empty());
+    ASSERT_EQ(csc.m_col_idxs.size(), size_t(1));
+    EXPECT_EQ(csc.m_col_idxs[0], c_int(0));
+  }
+
+  // 0x0 square matrix through the trapezoidal path: square check passes (0 == 0) and the column
+  // loop never runs.
+  {
+    const CSC_Matrix csc = calCSCMatrixTrapezoidal(Eigen::MatrixXd(0, 0));
+    EXPECT_TRUE(csc.m_vals.empty());
+    EXPECT_TRUE(csc.m_row_idxs.empty());
+    ASSERT_EQ(csc.m_col_idxs.size(), size_t(1));
+    EXPECT_EQ(csc.m_col_idxs[0], c_int(0));
+  }
+}
 TEST(TestCscMatrixConv, Print)
 {
   using autoware::osqp_interface::calCSCMatrix;

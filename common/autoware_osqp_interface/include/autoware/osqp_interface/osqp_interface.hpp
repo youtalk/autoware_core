@@ -24,13 +24,29 @@
 
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
 namespace autoware::osqp_interface
 {
 constexpr c_float INF = 1e30;
+
+namespace detail
+{
+/// \brief Build the warning message emitted when an optimization problem is not solved.
+/// \details Pure, ROS-free core of OSQPInterface::logUnsolvedStatus. Returns std::nullopt when the
+/// problem was solved (status == 1), in which case no warning should be logged. Otherwise returns
+/// the message, optionally prefixed by `prefix` followed by a single space.
+/// \param status Solver status value (1 == solved).
+/// \param status_message Human-readable solver status string (from OSQPInfo::status).
+/// \param prefix Optional prefix prepended to the message; empty means no prefix.
+/// \return The message to log, or std::nullopt when there is nothing to log.
+OSQP_INTERFACE_PUBLIC std::optional<std::string> build_unsolved_status_message(
+  int64_t status, std::string_view status_message, std::string_view prefix);
+}  // namespace detail
 
 struct OSQPResult
 {

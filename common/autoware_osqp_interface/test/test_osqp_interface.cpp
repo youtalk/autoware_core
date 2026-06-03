@@ -17,9 +17,13 @@
 
 #include <Eigen/Core>
 
+#include <cstdint>
 #include <iostream>
+#include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -276,5 +280,41 @@ TEST(TestOsqpInterface, LogUnsolvedStatusSolvedIsNoThrow)
   ASSERT_EQ(osqp.getStatus(), 1);  // solved
   EXPECT_NO_THROW(osqp.logUnsolvedStatus());
   EXPECT_NO_THROW(osqp.logUnsolvedStatus("prefix"));
+}
+
+// Pure ROS-free core of logUnsolvedStatus. Asserted by structure/value only:
+//   - solved (status == 1) yields no message (std::nullopt);
+//   - any non-solved status yields a message (has_value());
+//   - a non-empty prefix is structurally present in the produced message, while an empty prefix is
+//     not prepended.
+TEST(TestOsqpInterface, BuildUnsolvedStatusMessage)
+{
+  using autoware::osqp_interface::detail::build_unsolved_status_message;
+
+  // Solved => nothing to log.
+  EXPECT_FALSE(build_unsolved_status_message(1, "solved", "").has_value());
+  EXPECT_FALSE(build_unsolved_status_message(1, "solved", "prefix").has_value());
+
+  // Unsolved without prefix => a message is produced and the prefix token is absent.
+  {
+    const auto msg = build_unsolved_status_message(-3, "primal infeasible", "");
+    ASSERT_TRUE(msg.has_value());
+    EXPECT_EQ(msg->find("prefix"), std::string::npos);
+  }
+
+  // Unsolved with prefix => a message is produced and the prefix is structurally present.
+  {
+    const auto msg = build_unsolved_status_message(-3, "primal infeasible", "prefix");
+    ASSERT_TRUE(msg.has_value());
+    EXPECT_NE(msg->find("prefix"), std::string::npos);
+  }
+
+  // Degenerate / boundary statuses other than the solved sentinel must still yield a message.
+  EXPECT_TRUE(build_unsolved_status_message(0, "", "").has_value());
+  EXPECT_TRUE(build_unsolved_status_message(2, "solved inaccurate", "").has_value());
+  EXPECT_TRUE(
+    build_unsolved_status_message(std::numeric_limits<int64_t>::max(), "", "").has_value());
+  EXPECT_TRUE(
+    build_unsolved_status_message(std::numeric_limits<int64_t>::min(), "", "").has_value());
 }
 }  // namespace
