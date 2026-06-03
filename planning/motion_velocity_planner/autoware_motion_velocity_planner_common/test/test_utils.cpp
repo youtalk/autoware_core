@@ -285,6 +285,16 @@ TEST(MvpUtilsExtend, OnlyFinalPointWhenStepLargerThanDistance)
   EXPECT_NEAR(result.back().pose.position.x, 2.0 + extend_distance, 1e-6);  // x = 3.0
 }
 
+TEST(MvpUtilsExtend, EmptyInputReturnsEmptyWithoutDereferencingBack)
+{
+  // Degenerate case: an empty trajectory has no goal point to extend from. With an
+  // extend_distance >= min_step_length (0.1) the short-distance early return is skipped, so the
+  // empty guard must prevent the back() dereference and return the input unchanged.
+  const std::vector<TrajectoryPoint> empty_points;
+  const auto result = get_extended_trajectory_points(empty_points, 5.0, 2.0);
+  EXPECT_TRUE(result.empty());
+}
+
 // ----------------------------- calc_distance_to_front_object -----------------------------------
 
 TEST(MvpUtilsFrontObject, ReturnsArcLengthForObjectAhead)
@@ -303,6 +313,15 @@ TEST(MvpUtilsFrontObject, ReturnsNulloptForObjectBehind)
   // ego at index 3 (x = 3), obstacle behind at x = 0.2 (nearest index 0) -> negative arc length.
   const auto dist = calc_distance_to_front_object(points, 3, make_point(0.2, 0.0));
   EXPECT_FALSE(dist.has_value());
+}
+
+TEST(MvpUtilsFrontObject, EmptyTrajectoryThrows)
+{
+  // Precondition violation: findNearestIndex validates a non-empty trajectory and throws on an
+  // empty one. Pin that the precondition is enforced rather than silently producing a result.
+  const std::vector<TrajectoryPoint> empty_points;
+  EXPECT_THROW(
+    calc_distance_to_front_object(empty_points, 0, make_point(1.0, 0.0)), std::invalid_argument);
 }
 
 // ----------------------------- concat_vectors --------------------------------------------------
