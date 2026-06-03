@@ -452,9 +452,13 @@ double calcLongitudinalOffsetToSegment(
   size_t back_idx = seg_idx + 1;
   while (back_idx < points.size()) {
     const auto candidate = autoware_utils_geometry::get_point(points.at(back_idx));
-    if (
-      std::abs(p_front.x - candidate.x) >= overlap_eps ||
-      std::abs(p_front.y - candidate.y) >= overlap_eps) {
+    // Mirror removeOverlapPoints exactly: a point is skipped only when it is coincident with
+    // p_front (`abs(dx) < eps && abs(dy) < eps`). Use the negation of that skip condition rather
+    // than `>= || >=`, because the two are not De Morgan equivalents under IEEE NaN: for a NaN
+    // coordinate the skip condition is false, so removeOverlapPoints keeps the point as the back
+    // point. The negated form keeps it here too, guaranteeing identical behavior in all cases.
+    if (!(std::abs(p_front.x - candidate.x) < overlap_eps &&
+          std::abs(p_front.y - candidate.y) < overlap_eps)) {
       break;
     }
     ++back_idx;

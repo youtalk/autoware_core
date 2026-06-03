@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace
@@ -94,6 +95,37 @@ TEST(trajectory_overlap_characterization, calcLongitudinalOffsetToSegment_traili
 
   // The same situation but with throw_exception = true must raise runtime_error.
   EXPECT_THROW(calcLongitudinalOffsetToSegment(points, 1, target, true), std::runtime_error);
+}
+
+// Degenerate coordinate (NaN / Inf) characterization. removeOverlapPoints treats a NaN-coordinate
+// point as non-coincident (its skip condition `abs(dx) < eps && abs(dy) < eps` is false under IEEE
+// NaN), so it is kept as the back point and the resulting segment vector contains a NaN, yielding a
+// NaN offset. This pins the overlap scan to that exact base behavior: it must keep, not skip, the
+// NaN/Inf point. The break condition is written as the negation of the skip condition so it stays
+// the De Morgan complement of removeOverlapPoints under IEEE NaN.
+TEST(trajectory_overlap_characterization, calcLongitudinalOffsetToSegment_nan_back_point)
+{
+  using autoware::motion_utils::calcLongitudinalOffsetToSegment;
+
+  const double nan_v = std::numeric_limits<double>::quiet_NaN();
+  const auto target = create_point(2.0, 1.0, 0.0);
+
+  // seg_idx = 0 at (0,0); idx 1 has a NaN x; idx 2 is finite and non-coincident.
+  // The NaN point at idx 1 is kept as the back point -> NaN result.
+  const std::vector<TrajectoryPoint> nan_x = {
+    makePoint(0.0, 0.0), makePoint(nan_v, 0.0), makePoint(5.0, 0.0)};
+  EXPECT_TRUE(std::isnan(calcLongitudinalOffsetToSegment(nan_x, 0, target)));
+
+  // Same with a NaN y coordinate at idx 1.
+  const std::vector<TrajectoryPoint> nan_y = {
+    makePoint(0.0, 0.0), makePoint(0.0, nan_v), makePoint(5.0, 0.0)};
+  EXPECT_TRUE(std::isnan(calcLongitudinalOffsetToSegment(nan_y, 0, target)));
+
+  // An Inf-coordinate back point likewise propagates: abs(Inf) >= eps so it is kept as the back
+  // point and segment_vec.norm() is Inf -> the offset is NaN (finite / Inf or Inf / Inf).
+  const double inf_v = std::numeric_limits<double>::infinity();
+  const std::vector<TrajectoryPoint> inf_x = {makePoint(0.0, 0.0), makePoint(inf_v, 0.0)};
+  EXPECT_TRUE(std::isnan(calcLongitudinalOffsetToSegment(inf_x, 0, target)));
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +223,12 @@ TEST(trajectory_overlap_characterization, calcSignedArcLengthPartialSum_equal_in
     ASSERT_EQ(partial.size(), static_cast<size_t>(1));
     EXPECT_NEAR(partial.at(0), 0.0, kTestTolerance);
   }
+
+  // Precondition-violation guard: an empty container is rejected by validateNonEmpty before the
+  // equal-index base case, so the result is an empty vector {} (not {0.0}). This pins the
+  // documented guard return alongside the equal-index postcondition.
+  const std::vector<TrajectoryPoint> empty_points;
+  EXPECT_TRUE(calcSignedArcLengthPartialSum(empty_points, 0, 0).empty());
 
   // Re-pin the reversed-range (src_idx > dst_idx) behavior: it equals the forward
   // partial sum over the swapped, ascending range and is unaffected by the new base case.
