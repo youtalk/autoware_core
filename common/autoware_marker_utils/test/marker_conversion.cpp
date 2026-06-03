@@ -28,6 +28,7 @@
 #include <lanelet2_core/primitives/CompoundPolygon.h>
 #include <lanelet2_core/primitives/Lanelet.h>
 
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -797,11 +798,18 @@ TEST_F(MarkerConversionTest, CreateLineStringMarker)
   expect_point_eq(marker.points[2], 1, 1, z);
 }
 
-// Test 28: create_path_with_lane_id_marker_array - text-marker emission structure.
+// Test 28: create_path_with_lane_id_marker_array - text-marker emission structure AND content.
 // Characterizes the loop-hoist of calc_path_arc_length_array(): for 12 points one TEXT marker
 // is emitted when the running counter reaches a multiple of 10 (after the 10th point), so the
-// array holds exactly 12 ARROW markers plus a single TEXT marker. We assert only on this
-// structure, not on the human-facing label text.
+// array holds exactly 12 ARROW markers plus a single TEXT marker.
+//
+// The hoist's load-bearing postcondition is the per-index correspondence the TEXT marker encodes:
+// "i=<idx>\ns=<arclength[idx]>" with s formatted at one decimal (fixed). With points at (i, i)
+// each segment is sqrt(2) long, the text marker fires at idx == 9, so the computed arc length is
+// 9 * sqrt(2) ~= 12.728, rendered as "12.7". The marker.text field is a computed contract value
+// (an arc-length numeric output), not human-facing log prose, so pinning it is intended: a hoist
+// that corrupted the index-vs-arclength mapping would change this string while the counts stayed
+// the same.
 TEST_F(MarkerConversionTest, CreatePathWithLaneIdMarkerArrayTextContent)
 {
   autoware_internal_planning_msgs::msg::PathWithLaneId path;
@@ -820,12 +828,25 @@ TEST_F(MarkerConversionTest, CreatePathWithLaneIdMarkerArrayTextContent)
   ASSERT_EQ(arr.markers.size(), 13u);
 
   int text_count = 0;
+  const visualization_msgs::msg::Marker * text_marker = nullptr;
   for (const auto & m : arr.markers) {
     if (m.type == visualization_msgs::msg::Marker::TEXT_VIEW_FACING) {
       ++text_count;
+      text_marker = &m;
     }
   }
   ASSERT_EQ(text_count, 1);
+  ASSERT_NE(text_marker, nullptr);
+
+  // Pin the hoisted arc-length output exactly: idx 9 and s = 9*sqrt(2) rendered at one decimal.
+  EXPECT_EQ(text_marker->text, "i=9\ns=12.7");
+
+  // Also pin the underlying numeric value independently of the rendered precision: parse the
+  // "s=" field and compare to 9*sqrt(2) within the one-decimal rounding tolerance.
+  const auto s_pos = text_marker->text.find("s=");
+  ASSERT_NE(s_pos, std::string::npos);
+  const double s_value = std::stod(text_marker->text.substr(s_pos + 2));
+  EXPECT_NEAR(s_value, 9.0 * std::sqrt(2.0), 0.05);
 }
 
 // Test 29: create_path_with_lane_id_marker_array - the gray-color branch.
