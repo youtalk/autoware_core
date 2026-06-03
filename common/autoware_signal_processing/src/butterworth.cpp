@@ -309,6 +309,19 @@ void ButterworthFilter::printDiscreteTimeTF() const
 {
   const int & n = filter_specs_.N;
 
+  // The numerator and denominator are sized to (N + 1) only after computeDiscreteTimeTF() has run.
+  // Since this method is public it may be called beforehand, when both still have their default
+  // size, so guard against indexing past the end.
+  if (
+    dt_tf_.discrete_time_numerator_.size() < static_cast<size_t>(n) + 1 ||
+    dt_tf_.discrete_time_denominator_.size() < static_cast<size_t>(n) + 1) {
+    RCLCPP_INFO(
+      rclcpp::get_logger("rclcpp"),
+      "The discrete-time transfer function has not been computed yet. Call "
+      "computeDiscreteTimeTF() first.");
+    return;
+  }
+
   std::stringstream stream;
   stream << "\nThe Discrete Time Transfer Function of the Filter is ;\n";
 

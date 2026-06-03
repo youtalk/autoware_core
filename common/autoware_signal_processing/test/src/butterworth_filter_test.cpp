@@ -294,3 +294,13 @@ TEST_F(ButterWorthTestFixture, printContinuousTimeTFBeforeComputeDoesNotOverrun)
   ButterworthFilter bf;
   ASSERT_NO_THROW(bf.printContinuousTimeTF());
 }
+
+TEST_F(ButterWorthTestFixture, printDiscreteTimeTFBeforeComputeDoesNotOverrun)
+{
+  // printDiscreteTimeTF() is public and indexes the numerator/denominator at [N]. Before
+  // computeDiscreteTimeTF() runs, both still have their default size, so it must not read past the
+  // end. The order is left at its default (N = 1), where [N] would otherwise be out of bounds for
+  // the size-1 default numerator/denominator.
+  ButterworthFilter bf;
+  ASSERT_NO_THROW(bf.printDiscreteTimeTF());
+}
