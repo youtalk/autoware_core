@@ -80,12 +80,14 @@ TEST(AutowareTestUtils, MakeInitialPose)
   const auto odometry = makeInitialPose(shift);
 
   constexpr double yaw = 0.9724497591854532;
-  const double expected_x = 3722.16015625 + shift * std::sin(yaw);
-  const double expected_y = 73723.515625 + shift * std::cos(yaw);
+  // Independent pre-computed oracle (offline) for shift = 4.0 and yaw above,
+  // decoupled from the implementation's shift * sin/cos formula.
+  constexpr double expected_x = 3725.465228587888;
+  constexpr double expected_y = 73725.76873326223;
 
   EXPECT_EQ(odometry.header.frame_id, "map");
-  EXPECT_DOUBLE_EQ(odometry.pose.pose.position.x, expected_x);
-  EXPECT_DOUBLE_EQ(odometry.pose.pose.position.y, expected_y);
+  EXPECT_NEAR(odometry.pose.pose.position.x, expected_x, 1e-6);
+  EXPECT_NEAR(odometry.pose.pose.position.y, expected_y, 1e-6);
   EXPECT_DOUBLE_EQ(odometry.pose.pose.position.z, 0.233112560494183);
   // Orientation is a yaw-only quaternion: z = sin(yaw/2), w = cos(yaw/2)
   EXPECT_NEAR(odometry.pose.pose.orientation.z, std::sin(yaw / 2.0), 1e-12);
