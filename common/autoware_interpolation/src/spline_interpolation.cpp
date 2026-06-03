@@ -230,13 +230,12 @@ double SplineInterpolation::getSplineInterpolatedQuadDiffValue(const double quer
 std::vector<double> SplineInterpolation::getSplineInterpolatedValues(
   const std::vector<double> & query_keys) const
 {
-  // throw exceptions for invalid arguments. validateKeys() also crops the end query keys that are
-  // slightly out of the base-key range due to floating-point error, so iterate the validated copy.
-  const auto validated_query_keys = autoware::interpolation::validateKeys(base_keys_, query_keys);
+  // throw exceptions for invalid arguments
+  autoware::interpolation::validateKeys(base_keys_, query_keys);
   std::vector<double> interpolated_values;
-  interpolated_values.reserve(validated_query_keys.size());
+  interpolated_values.reserve(query_keys.size());
 
-  for (const auto & key : validated_query_keys) {
+  for (const auto & key : query_keys) {
     interpolated_values.emplace_back(getSplineInterpolatedValue(key));
   }
 
@@ -246,13 +245,12 @@ std::vector<double> SplineInterpolation::getSplineInterpolatedValues(
 std::vector<double> SplineInterpolation::getSplineInterpolatedDiffValues(
   const std::vector<double> & query_keys) const
 {
-  // throw exceptions for invalid arguments. validateKeys() also crops the end query keys that are
-  // slightly out of the base-key range due to floating-point error, so iterate the validated copy.
-  const auto validated_query_keys = autoware::interpolation::validateKeys(base_keys_, query_keys);
+  // throw exceptions for invalid arguments
+  autoware::interpolation::validateKeys(base_keys_, query_keys);
   std::vector<double> interpolated_diff_values;
-  interpolated_diff_values.reserve(validated_query_keys.size());
+  interpolated_diff_values.reserve(query_keys.size());
 
-  for (const auto & key : validated_query_keys) {
+  for (const auto & key : query_keys) {
     interpolated_diff_values.emplace_back(getSplineInterpolatedDiffValue(key));
   }
 
@@ -262,13 +260,12 @@ std::vector<double> SplineInterpolation::getSplineInterpolatedDiffValues(
 std::vector<double> SplineInterpolation::getSplineInterpolatedQuadDiffValues(
   const std::vector<double> & query_keys) const
 {
-  // throw exceptions for invalid arguments. validateKeys() also crops the end query keys that are
-  // slightly out of the base-key range due to floating-point error, so iterate the validated copy.
-  const auto validated_query_keys = autoware::interpolation::validateKeys(base_keys_, query_keys);
+  // throw exceptions for invalid arguments
+  autoware::interpolation::validateKeys(base_keys_, query_keys);
   std::vector<double> interpolated_quad_diff_values;
-  interpolated_quad_diff_values.reserve(validated_query_keys.size());
+  interpolated_quad_diff_values.reserve(query_keys.size());
 
-  for (const auto & key : validated_query_keys) {
+  for (const auto & key : query_keys) {
     interpolated_quad_diff_values.emplace_back(getSplineInterpolatedQuadDiffValue(key));
   }
 
