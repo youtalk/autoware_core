@@ -49,7 +49,7 @@ geometry_msgs::msg::AccelWithCovariance AccelEstimator::estimate(
   accel.accel.angular.z =
     lpf_aaz_.filter((curr_twist.angular.z - prev_twist.angular.z) / clamped_dt);
 
-  // Ideally speaking, these covariance should be properly estimated. Until that
+  // Ideally speaking, this covariance should be properly estimated. Until that
   // is done, report constant diagonal variances; off-diagonal terms stay at the
   // default zero.
   accel.covariance[XYZRPY_COV_IDX::X_X] = g_linear_accel_variance;
