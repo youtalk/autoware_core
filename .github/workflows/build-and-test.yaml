@@ -43,7 +43,9 @@ jobs:
       enable-agnocast: ${{ matrix.enable-agnocast }}
       codecov-flag: total-${{ matrix.rosdistro }}${{ matrix.enable-agnocast && '-agnocast' || '' }}
       concurrency-group: build-and-test-${{ matrix.rosdistro }}${{ matrix.above && '-above' || '' }}${{ matrix.enable-agnocast && '-agnocast' || '' }}-${{ github.ref }}-${{ github.run_id }}
-      runner: ${{ matrix.above && '["self-hosted","Linux","X64"]' || '["ubuntu-latest"]' }}
+      # On youtalk's fork, run the heavy non-above jobs on a 16-vCPU Ubicloud runner
+      # when youtalk both owns the repo and triggered the run; otherwise ubuntu-latest.
+      runner: ${{ matrix.above && '["self-hosted","Linux","X64"]' || ((github.repository_owner == 'youtalk' && github.actor == 'youtalk') && '["ubicloud-standard-16"]' || '["ubuntu-latest"]') }}
 
     secrets:
       codecov-token: ${{ secrets.CODECOV_TOKEN }}

@@ -193,7 +193,7 @@ jobs:
     name: clang-tidy-${{ inputs.rosdistro }}${{ inputs.above && '-above' || '' }}${{ inputs.enable-agnocast && '-agnocast' || '' }}
     needs: build-and-test
     if: ${{ !inputs.above && !inputs.enable-agnocast }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJson(inputs.runner) }}
     container: ${{ inputs.container }}
     steps:
       - name: Checkout PR branch and all PR commits
