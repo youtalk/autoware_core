@@ -36,3 +36,5 @@ if(BUILD_TESTING)
 endif()
 
 autoware_ament_auto_package()
+
+# ci: ubicloud routing verification (no-op)
