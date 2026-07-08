@@ -21,6 +21,7 @@
 
 #include <autoware_map_msgs/msg/lanelet_map_bin.hpp>
 #include <autoware_map_msgs/msg/map_projector_info.hpp>
+#include <autoware_map_msgs/srv/get_differential_point_cloud_map.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
 namespace autoware::component_interface_specs::map
@@ -35,6 +36,7 @@ struct MapProjectorInfo
   static constexpr auto durability = RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL;
 };
 
+// interface-spec-lint: not-versioned (heavy-raw confinement, design section 5)
 struct PointCloudMap
 {
   using Message = sensor_msgs::msg::PointCloud2;
@@ -53,8 +55,17 @@ struct VectorMap
   static constexpr auto durability = RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL;
 };
 
+struct GetDifferentialPointCloudMap
+{
+  using Service = autoware_map_msgs::srv::GetDifferentialPointCloudMap;
+  static constexpr char name[] = "/map/get_differential_pointcloud_map";
+};
+
+// PointCloudMap is intentionally excluded: heavy-raw confinement (design section 5)
+// keeps the full point cloud map out of the versioned registration surface while
+// the struct itself stays available for existing consumers.
 AUTOWARE_COMPONENT_INTERFACE_SPECS_DEFINE_DOMAIN(
-  0, 1, 0, MapProjectorInfo, PointCloudMap, VectorMap)
+  0, 1, 0, VectorMap, MapProjectorInfo, GetDifferentialPointCloudMap)
 
 }  // namespace autoware::component_interface_specs::map
 
