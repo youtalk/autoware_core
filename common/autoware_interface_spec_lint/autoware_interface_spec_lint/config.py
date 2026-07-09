@@ -74,8 +74,8 @@ class GateConfig:
 def _parse_severity(gate: str, raw) -> Severity:
     if isinstance(raw, dict):
         raw = raw.get("severity")
-    # YAML 1.1 parses the bareword `off` as boolean False; normalize it back so
-    # `severity: off` reads naturally (a bareword `on`/True is left invalid).
+    # YAML 1.1 parses the bare word `off` as boolean False; normalize it back so
+    # `severity: off` reads naturally (a bare word `on`/True is left invalid).
     if raw is False:
         raw = "off"
     elif raw is True:
@@ -109,11 +109,11 @@ def load_config(path) -> GateConfig:
             )
         severities[gate] = severity
 
-    nrst = data.get("no_raw_spec_topic") or {}
+    raw_topic_cfg = data.get("no_raw_spec_topic") or {}
     owner_iso = data.get("owner_isolation") or {}
     return GateConfig(
         severities=severities,
-        no_raw_spec_topic_deny=list(nrst.get("deny", [])),
-        no_raw_spec_topic_allow=list(nrst.get("allow", [])),
+        no_raw_spec_topic_deny=list(raw_topic_cfg.get("deny", [])),
+        no_raw_spec_topic_allow=list(raw_topic_cfg.get("allow", [])),
         owner_isolation_base_owner=owner_iso.get("base_owner", "autowarefoundation"),
     )

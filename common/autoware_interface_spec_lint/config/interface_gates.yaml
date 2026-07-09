@@ -22,7 +22,7 @@ gates:
   no_raw_spec_topic: { severity: error }
 
   # --- Honest deferrals (kept off; enabling one is rejected until implemented) ---
-  # ("off" is quoted so YAML does not parse the bareword as the boolean false.)
+  # ("off" is quoted so YAML does not parse the bare word as the boolean false.)
   # Need per-component provided/required role manifests, which arrive with the
   # deploy-time track (OCI-label manifests, M2.2). Deferred.
   no_foreign_if_dependency: { severity: "off" }

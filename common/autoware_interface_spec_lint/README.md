@@ -6,15 +6,15 @@ Each gate's severity comes from the committed gate config (`config/interface_gat
 
 ## Gates
 
-| Gate                     | Input                      | Severity | Flags                                                                                                                                       |
-| ------------------------ | -------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `interface_spec_concept` | domain headers             | error    | a struct with a `name[]` that is neither a valid topic (`Message` + `depth` + `reliability` + `durability`) nor a valid service (`Service`) |
-| `spec_registered`        | domain headers             | error    | a spec struct not listed in its namespace's `using Specs = std::tuple<...>` (unless it carries the suppression marker)                      |
-| `version_consistency`    | headers + manifest         | error    | a domain not declaring exactly one `version{...}`, a MAJOR that is not `0`, or a manifest version that disagrees with the header version    |
+| Gate                     | Input                      | Severity | Flags                                                                                                                                                                                               |
+| ------------------------ | -------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `interface_spec_concept` | domain headers             | error    | a struct with a `name[]` that is neither a valid topic (`Message` + `depth` + `reliability` + `durability`) nor a valid service (`Service`)                                                         |
+| `spec_registered`        | domain headers             | error    | a spec struct not listed in its namespace's `using Specs = std::tuple<...>` (unless it carries the suppression marker)                                                                              |
+| `version_consistency`    | headers + manifest         | error    | a domain not declaring exactly one `version{...}`, a MAJOR that is not `0`, or a manifest version that disagrees with the header version                                                            |
 | `qos_consistency`        | headers + manifest         | error    | a registered spec whose `history` / `depth` / `reliability` / `durability` disagrees with its manifest `qos` block, is missing from the manifest, or names a QoS policy the manifest cannot express |
-| `manifest_fresh`         | generator + committed JSON | error    | the rebuilt generator output differs from the committed `interface_manifest.json` (see the binding-gate note below)                         |
-| `owner_isolation`        | manifest(s)                | error    | a non-base-owner manifest entry whose interface name shadows a base-owner (`autowarefoundation`) entry (design section 7, FDD 13)           |
-| `no_raw_spec_topic`      | manifest(s)                | error    | a versioned **topic** whose interface name contains a heavy-raw deny substring (design section 5); services are out of scope                |
+| `manifest_fresh`         | generator + committed JSON | error    | the rebuilt generator output differs from the committed `interface_manifest.json` (see the binding-gate note below)                                                                                 |
+| `owner_isolation`        | manifest(s)                | error    | a non-base-owner manifest entry whose interface name shadows a base-owner (`autowarefoundation`) entry (design section 7, FDD 13)                                                                   |
+| `no_raw_spec_topic`      | manifest(s)                | error    | a versioned **topic** whose interface name contains a heavy-raw deny substring (design section 5); services are out of scope                                                                        |
 
 The manifest audits (`owner_isolation`, `no_raw_spec_topic`) take a _list_ of manifest dicts so a future vendor-partition manifest can be cross-checked against the base manifest; with the single committed core manifest `owner_isolation` is vacuously clean.
 

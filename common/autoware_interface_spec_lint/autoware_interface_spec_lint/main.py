@@ -132,6 +132,12 @@ def _run_gate(name, gate_config, ctx):
     raise ValueError(f"no runner for gate '{name}'")
 
 
+# The pure-Python static header checks (each takes spec_dir + manifest and returns
+# findings), enumerated for real-data acceptance testing. manifest_fresh needs the
+# generator and the manifest audits take a manifest list, so neither is a static check.
+STATIC_CHECKS = (interface_spec_concept, spec_registered, version_consistency, qos_consistency)
+
+
 # Deterministic gate run order.
 _GATE_ORDER = (
     "interface_spec_concept",
