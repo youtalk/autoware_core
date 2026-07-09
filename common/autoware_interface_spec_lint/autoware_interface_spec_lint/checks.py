@@ -493,6 +493,103 @@ def qos_consistency(spec_dir: Path, manifest=None) -> list:
     return findings
 
 
+def load_manifests(paths) -> list:
+    """Read each committed manifest JSON into a dict annotated with its source path.
+
+    The ``__path__`` key lets the manifest audits anchor a finding at the file it
+    came from; synthetic in-memory fixtures omit it and fall back to a label.
+    """
+    manifests: list = []
+    for path in paths:
+        p = Path(path)
+        if not p.is_file():
+            _warn(f"manifest not found: {path}; skipping")
+            continue
+        data = json.loads(p.read_text())
+        data["__path__"] = str(p)
+        manifests.append(data)
+    return manifests
+
+
+def _manifest_label(manifest) -> str:
+    return manifest.get("__path__") or f"<manifest owner={manifest.get('owner')}>"
+
+
+def owner_isolation(manifests, base_owner: str = "autowarefoundation") -> list:
+    """WARN when a non-base-owner manifest entry shadows a base-owner interface name.
+
+    Extension (vendor) interfaces must be strictly additive to the OSS public
+    surface: they may not redefine / intercept an interface name owned by the base
+    owner (design section 7, FDD 13 non-interception). ``owner`` is a per-manifest
+    top-level field in the committed schema, so shadowing can only arise across two
+    manifests with different owners; with the single core (base-owner) manifest this
+    is vacuously clean.
+    """
+    base_names = set()
+    for manifest in manifests:
+        if manifest.get("owner") == base_owner:
+            for entry in manifest.get("interfaces", []):
+                name = entry.get("interface")
+                if name is not None:
+                    base_names.add(name)
+    findings: list = []
+    for manifest in manifests:
+        owner = manifest.get("owner")
+        if owner == base_owner:
+            continue
+        label = _manifest_label(manifest)
+        for entry in manifest.get("interfaces", []):
+            name = entry.get("interface")
+            if name in base_names:
+                findings.append(
+                    Finding(
+                        "WARN",
+                        label,
+                        1,
+                        f"interface '{name}' owned by '{owner}' shadows a "
+                        f"'{base_owner}' interface of the same name; extension "
+                        f"interfaces must not redefine a base interface (design section 7)",
+                    )
+                )
+    return findings
+
+
+def no_raw_spec_topic(manifests, deny, allow=None) -> list:
+    """WARN when a versioned *topic* entry's interface name matches a heavy-raw deny.
+
+    Heavy-raw payloads (point clouds, images, occupancy grids; design section 5)
+    must stay out of the versioned cross-container interface surface. The check
+    matches ``deny`` substrings against the interface name of ``kind == "topic"``
+    entries only: request/response services (e.g. the sanctioned
+    ``/map/get_differential_pointcloud_map`` map-chunk query) are not raw broadcast
+    streams and are out of scope even when their name contains a deny substring.
+    An entry whose name is in ``allow`` is never flagged.
+    """
+    allow_set = set(allow or [])
+    findings: list = []
+    for manifest in manifests:
+        label = _manifest_label(manifest)
+        for entry in manifest.get("interfaces", []):
+            if entry.get("kind") != "topic":
+                continue
+            name = entry.get("interface")
+            if name is None or name in allow_set:
+                continue
+            hits = [d for d in deny if d in name]
+            if hits:
+                findings.append(
+                    Finding(
+                        "WARN",
+                        label,
+                        1,
+                        f"interface '{name}' is a heavy-raw topic (matches "
+                        f"{hits}); it must not be a versioned cross-container spec "
+                        f"(design section 5 heavy-raw confinement)",
+                    )
+                )
+    return findings
+
+
 def _warn(message: str) -> None:
     print(f"WARN {message}", file=sys.stderr)
 

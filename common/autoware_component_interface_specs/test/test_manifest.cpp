@@ -78,3 +78,19 @@ TEST(manifest, committed_file_is_up_to_date)
   EXPECT_EQ(regenerate(), read_file(COMMITTED_MANIFEST))
     << "interface_manifest.json is stale -- regenerate it, see README.md";
 }
+
+// Exercise the freshness comparison against a synthetic mismatch: a manifest with an
+// altered version literal must not compare equal to the committed one. This locks the
+// drift-detection path (the equality check above is what fails a stale commit).
+TEST(manifest, drift_is_detected_by_comparison)
+{
+  const std::string committed = read_file(COMMITTED_MANIFEST);
+  ASSERT_FALSE(committed.empty());
+  std::string mutated = committed;
+  const std::string from = "\"version\": \"0.1.0\"";
+  const std::string to = "\"version\": \"0.2.0\"";
+  const auto pos = mutated.find(from);
+  ASSERT_NE(pos, std::string::npos);
+  mutated.replace(pos, from.size(), to);
+  EXPECT_NE(committed, mutated);
+}
