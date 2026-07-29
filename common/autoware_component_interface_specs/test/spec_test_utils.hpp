@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 namespace autoware::component_interface_specs::test_utils
 {
@@ -32,6 +33,21 @@ template <typename T, typename Tuple>
 struct has_type;
 template <typename T, typename... Us>
 struct has_type<T, std::tuple<Us...>> : std::disjunction<std::is_same<T, Us>...>
+{
+};
+
+/// Mirror of universe's HasDomainVersion: a void_t/expression-SFINAE probe over the
+/// ADL-resolved resolve_domain_version(const Spec &). Downstream consumers use exactly
+/// this shape to decide whether a spec participates in versioned interface
+/// registration, so a domain can type-enforce that a deliberately unversioned spec
+/// fails version resolution, rather than merely being absent from the Specs tuple.
+template <class, class = void>
+struct has_domain_version : std::false_type
+{
+};
+template <class S>
+struct has_domain_version<
+  S, std::void_t<decltype(resolve_domain_version(std::declval<const S &>()))>> : std::true_type
 {
 };
 
