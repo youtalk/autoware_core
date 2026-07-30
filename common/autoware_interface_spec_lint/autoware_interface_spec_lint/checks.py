@@ -40,7 +40,7 @@ SUPPRESS_MARKER = "// interface-spec-lint: not-versioned"
 GENERATOR_ENV = "INTERFACE_MANIFEST_GENERATOR"
 
 # Headers that are not per-domain spec files and carry no domain version / Specs.
-_SKIP_HEADERS = {"utils.hpp", "version.hpp", "concepts.hpp"}
+_SKIP_HEADERS = {"utils.hpp", "version.hpp", "concepts.hpp", "qos_compatibility.hpp"}
 
 # The header declaring the one QoS profile every service spec runs on.
 _UTILS_HEADER = "utils.hpp"
