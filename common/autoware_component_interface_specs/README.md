@@ -112,3 +112,29 @@ colcon build --symlink-install --packages-select autoware_component_interface_sp
 ```
 
 The generator emits the same layout Prettier produces, so the committed file is stable across regenerations. Adjust the output path to match where the package lives in your workspace. `test_manifest.cpp` diffs the generator's output against the committed file, so a stale manifest fails the build rather than reaching consumers.
+
+## QoS semantics: the declared QoS is a pivot
+
+The QoS a spec declares (`depth`, `reliability`, `durability`) is a
+**compatibility pivot**, not an exact-match requirement:
+
+- A **provider** must offer QoS at least as strong as the pivot.
+- A **consumer** must request QoS at most as strong as the pivot.
+
+Strength follows the DDS request-vs-offered partial order per policy
+(`RELIABLE` > `BEST_EFFORT`, `TRANSIENT_LOCAL` > `VOLATILE`); a connection
+forms iff the offered QoS is at least the requested QoS on every axis, so the
+pivot rule plus transitivity guarantees that every conforming
+provider/consumer pair connects. A provider may therefore offer
+`TRANSIENT_LOCAL` where the pivot says `VOLATILE`, and a consumer may request
+`BEST_EFFORT` where the pivot says `RELIABLE` — but never the reverse.
+
+`depth` is **not** a compatibility axis (DDS history is endpoint-local); the
+declared value is an advisory per-endpoint default. Deadline, liveliness and
+lifespan are not declared by specs.
+
+`qos_compatibility.hpp` provides the constexpr helpers
+(`is_qos_compatible`, `provider_satisfies_pivot`, `consumer_satisfies_pivot`,
+`pivot_of<Spec>()`); the deploy-time admission gate applies the same rule to
+recorded endpoint QoS. The manifest's top-level `"qos_semantics": "pivot"`
+marker identifies this semantics revision to external tools.
