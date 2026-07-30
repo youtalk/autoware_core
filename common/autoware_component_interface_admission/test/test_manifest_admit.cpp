@@ -12,19 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Library-level coverage of the deploy-time gate the manifest_admit executable drives: parse N
-// manifest JSON payloads, run evaluate_deploy() over the complete set, and derive the exit-code
-// verdict via any_rejected(). The executable itself is a thin argv / file / stdout wrapper around
-// exactly these calls, so its exit-code contract (0 = all accepted, 1 = any rejection) is what is
-// asserted here; there is no separate process-level CLI test.
+// Two layers of coverage for the deploy-time gate the manifest_admit executable drives:
+//  - Library-level: parse N manifest JSON payloads, run evaluate_deploy() over the complete set,
+//    and derive the exit-code verdict via any_rejected() directly (the ManifestAdmit test suite
+//    below).
+//  - CLI-level: drive run_manifest_admit() (manifest_admit's whole main(), factored out — see
+//    manifest_admit_cli.hpp) with argv-style arguments and on-disk files, asserting its exit code
+//    and what it writes to stdout/stderr (the ManifestAdmitCli test suite below). This is still a
+//    single in-process function call, not a spawned process.
 
 #include "autoware/component_interface_admission/admission_rule.hpp"
+#include "autoware/component_interface_admission/manifest_admit_cli.hpp"
 #include "autoware/component_interface_admission/manifest_json.hpp"
 #include "autoware/component_interface_admission/records.hpp"
 
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -75,7 +81,121 @@ std::vector<adm::InterfaceManifest> parse_all(const std::vector<std::string> & d
   }
   return manifests;
 }
+
+// --- CLI-level (run_manifest_admit) fixtures ---
+
+// run_manifest_admit() reads files by path, exactly like main() does, so these tests write their
+// fixtures to gtest's per-run temp directory rather than passing JSON in memory.
+std::string write_temp_file(const std::string & name, const std::string & content)
+{
+  const std::string path = ::testing::TempDir() + name;
+  std::ofstream f(path);
+  f << content;
+  return path;
+}
+
+std::string provided_qos_manifest_json(
+  const std::string & node, const std::string & interface_name, const std::string & reliability,
+  const std::string & durability)
+{
+  adm::InterfaceManifest m;
+  m.node_name = node;
+  adm::ProvidedInterface p;
+  p.interface_name = interface_name;
+  p.resolved_name = interface_name;
+  p.has_qos = true;
+  p.qos = {reliability, durability, 1};
+  m.provided.push_back(p);
+  return adm::to_json(m);
+}
+
+std::string required_qos_manifest_json(
+  const std::string & node, const std::string & interface_name, const std::string & reliability,
+  const std::string & durability)
+{
+  adm::InterfaceManifest m;
+  m.node_name = node;
+  adm::RequiredInterface r;
+  r.interface_name = interface_name;
+  r.resolved_name = interface_name;
+  r.has_qos = true;
+  r.qos = {reliability, durability, 1};
+  m.required.push_back(r);
+  return adm::to_json(m);
+}
 }  // namespace
+
+TEST(ManifestAdmitCli, spec_manifest_flag_accepted_before_positional_manifests)
+{
+  const std::string spec_path = write_temp_file("cli_spec_pivot_ok.json", R"({
+    "qos_semantics": "pivot",
+    "interfaces": [{"interface": "/t",
+                    "qos": {"reliability": "reliable", "durability": "volatile", "depth": 1}}]
+  })");
+  const std::string prov_path = write_temp_file(
+    "cli_provider_ok.json", provided_qos_manifest_json("/n1", "/t", "reliable", "volatile"));
+  const std::string cons_path = write_temp_file(
+    "cli_consumer_ok.json", required_qos_manifest_json("/n2", "/t", "reliable", "volatile"));
+
+  std::ostringstream out;
+  std::ostringstream err;
+  const int code =
+    adm::run_manifest_admit({"--spec-manifest", spec_path, prov_path, cons_path}, out, err);
+  EXPECT_EQ(code, 0);
+  EXPECT_NE(out.str().find("accepted"), std::string::npos);
+}
+
+TEST(ManifestAdmitCli, qos_violation_pair_exits_1_with_a_qos_verdict_line)
+{
+  const std::string spec_path = write_temp_file("cli_spec_pivot_reliable.json", R"({
+    "qos_semantics": "pivot",
+    "interfaces": [{"interface": "/t",
+                    "qos": {"reliability": "reliable", "durability": "volatile", "depth": 1}}]
+  })");
+  // Provider offers best_effort, below the reliable pivot -> QOS_PIVOT_PROVIDER.
+  const std::string prov_path = write_temp_file(
+    "cli_provider_below_pivot.json",
+    provided_qos_manifest_json("/n1", "/t", "best_effort", "volatile"));
+  const std::string cons_path = write_temp_file(
+    "cli_consumer_below_pivot.json",
+    required_qos_manifest_json("/n2", "/t", "best_effort", "volatile"));
+
+  std::ostringstream out;
+  std::ostringstream err;
+  const int code =
+    adm::run_manifest_admit({"--spec-manifest", spec_path, prov_path, cons_path}, out, err);
+  EXPECT_EQ(code, 1);
+  EXPECT_NE(out.str().find("QOS"), std::string::npos);
+}
+
+TEST(ManifestAdmitCli, missing_qos_manifests_exit_0_with_a_warning_on_stderr)
+{
+  // Plain v1-style manifests (no qos at all): the version verdict still ACCEPTs, but the QoS gate
+  // could not run, so stderr must carry a warning even though the exit code stays 0.
+  const std::string prov_path = write_temp_file("cli_provider_no_qos.json", provider_json(2, 1));
+  const std::string cons_path = write_temp_file("cli_consumer_no_qos.json", consumer_json(2));
+
+  std::ostringstream out;
+  std::ostringstream err;
+  const int code = adm::run_manifest_admit({prov_path, cons_path}, out, err);
+  EXPECT_EQ(code, 0);
+  EXPECT_NE(err.str().find("warning:"), std::string::npos);
+}
+
+TEST(ManifestAdmitCli, malformed_spec_manifest_exits_2)
+{
+  const std::string spec_path =
+    write_temp_file("cli_spec_pivot_malformed.json", R"({"owner": "x", "interfaces": []})");
+  const std::string prov_path = write_temp_file("cli_provider_malformed.json", provider_json(2, 1));
+  const std::string cons_path = write_temp_file("cli_consumer_malformed.json", consumer_json(2));
+
+  std::ostringstream out;
+  std::ostringstream err;
+  const int code =
+    adm::run_manifest_admit({"--spec-manifest", spec_path, prov_path, cons_path}, out, err);
+  EXPECT_EQ(code, 2);
+  EXPECT_FALSE(err.str().empty());
+}
 
 TEST(ManifestAdmit, accepts_compatible_image_set)
 {
