@@ -18,6 +18,7 @@
 #include "autoware/component_interface_admission/records.hpp"
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -43,6 +44,18 @@ enum Verdict : std::uint16_t {
   // deploy-time only: a required interface has no provider in the composed set. The runtime
   // observe-mode evaluate() never emits this — a provider may simply not have started yet.
   NO_PROVIDER = 4,
+  // The three codes below are deploy-time only, layered on top of an otherwise-ACCEPTED version
+  // verdict by evaluate_deploy(manifests, spec_pivots) when both sides of a pairing carry QoS
+  // (ProvidedInterface::has_qos / RequiredInterface::has_qos). See apply_qos_verdict().
+  //
+  // A pivot is registered for this interface (autoware_component_interface_specs'
+  // interface_manifest.json) and the provider's offered QoS ranks below it.
+  QOS_PIVOT_PROVIDER = 5,
+  // A pivot is registered for this interface and the consumer's requested QoS ranks above it.
+  QOS_PIVOT_CONSUMER = 6,
+  // No pivot is registered for this interface (e.g. a vendor / unversioned interface); the
+  // provider's offered QoS and the consumer's requested QoS are directly incompatible.
+  QOS_PAIR_INCOMPATIBLE = 7,
 };
 
 // One consumer <- provider interface pairing verdict.
@@ -74,6 +87,98 @@ inline bool version_compatible(const RequiredInterface & r, const ProvidedInterf
     return false;
   }
   return r.min_minor == 0 || p.major > r.accept_major_min || p.minor >= r.min_minor;
+}
+
+// Strength rank of a reliability policy string. RELIABLE delivers everything BEST_EFFORT does and
+// more, so it ranks higher. A policy string outside the two the QosRecord vocabulary allows ranks
+// -1: incomparable, so every comparison involving it fails (fail closed).
+//
+// autoware_component_interface_specs' qos_compatibility.hpp expresses this exact rank over RMW
+// enums (rmw_qos_reliability_policy_t / rmw_qos_durability_policy_t). The admission package
+// restates these ranks on the JSON string encoding (it is a no-dependency leaf that cannot include
+// this header). Change one and the other must follow: autoware_component_interface_admission,
+// admission_rule.hpp.
+inline int reliability_rank(const std::string & policy)
+{
+  if (policy == "best_effort") {
+    return 0;
+  }
+  if (policy == "reliable") {
+    return 1;
+  }
+  return -1;
+}
+
+// Strength rank of a durability policy string. TRANSIENT_LOCAL delivers everything VOLATILE does
+// and more, so it ranks higher. See reliability_rank() for the fail-closed / dual-maintenance note
+// (it applies identically here).
+inline int durability_rank(const std::string & policy)
+{
+  if (policy == "volatile") {
+    return 0;
+  }
+  if (policy == "transient_local") {
+    return 1;
+  }
+  return -1;
+}
+
+inline bool reliability_at_least(const std::string & a, const std::string & b)
+{
+  return reliability_rank(a) >= 0 && reliability_rank(b) >= 0 &&
+         reliability_rank(a) >= reliability_rank(b);
+}
+
+inline bool durability_at_least(const std::string & a, const std::string & b)
+{
+  return durability_rank(a) >= 0 && durability_rank(b) >= 0 &&
+         durability_rank(a) >= durability_rank(b);
+}
+
+// DDS request-vs-offered compatibility: a connection forms iff the offered QoS is at least as
+// strong as the requested QoS on every axis. depth is endpoint-local and presentational only (see
+// QosRecord in records.hpp); it is deliberately never inspected here or anywhere in this file.
+inline bool qos_is_at_least(const QosRecord & offered, const QosRecord & requested)
+{
+  return reliability_at_least(offered.reliability, requested.reliability) &&
+         durability_at_least(offered.durability, requested.durability);
+}
+
+// The pivot rule: a spec's declared QoS is a pivot, not an exact-match requirement. A provider must
+// offer at least the pivot and a consumer must request at most the pivot; transitivity of the QoS
+// partial order then guarantees every conforming pair connects (offered >= pivot >= requested).
+//
+// Layers a QoS verdict on top of `res`, which must already hold an ACCEPTED (or, for an unversioned
+// entry, a provisionally-ACCEPTED) version verdict for the given provider/required pairing. Leaves
+// `res` untouched (still ACCEPTED) when either side of the pairing does not carry QoS at all — a
+// provider or a required entry without `qos` in its manifest is not something this package can
+// evaluate, so no QOS_* verdict is produced for it.
+inline void apply_qos_verdict(
+  AdmissionResult & res, const ProvidedInterface & provider, const RequiredInterface & required,
+  const std::map<std::string, QosRecord> & spec_pivots)
+{
+  if (!provider.has_qos || !required.has_qos) {
+    return;
+  }
+
+  const auto pivot_it = spec_pivots.find(required.interface_name);
+  if (pivot_it != spec_pivots.end()) {
+    const auto & pivot = pivot_it->second;
+    if (!qos_is_at_least(provider.qos, pivot)) {
+      res.code = QOS_PIVOT_PROVIDER;
+      return;
+    }
+    if (!qos_is_at_least(pivot, required.qos)) {
+      res.code = QOS_PIVOT_CONSUMER;
+    }
+    return;
+  }
+
+  // No pivot registered for this interface (e.g. a vendor / unversioned interface): fall back to a
+  // direct offered-vs-requested compatibility check.
+  if (!qos_is_at_least(provider.qos, required.qos)) {
+    res.code = QOS_PAIR_INCOMPATIBLE;
+  }
 }
 
 // Runtime admission (the shared rule at its runtime trigger). For each required interface, find a
@@ -166,8 +271,21 @@ inline std::vector<AdmissionResult> evaluate(const std::vector<InterfaceManifest
 // backstops. Because the deploy image set is complete (unlike the runtime observe mode, where a
 // provider may simply not have started yet), a required interface with NO provider anywhere in the
 // set is reported as NO_PROVIDER.
+//
+// `spec_pivots` is the interface_name -> QoS map parsed by spec_pivots_from_json() from
+// autoware_component_interface_specs' interface_manifest.json. When a pairing that is otherwise
+// version-ACCEPTED has QoS on both sides, apply_qos_verdict() layers QOS_PIVOT_PROVIDER /
+// QOS_PIVOT_CONSUMER / QOS_PAIR_INCOMPATIBLE on top of it; see that function's comment.
+//
+// A required entry with has_version == false (a v2 manifest declaring no version at all) never
+// produces a version verdict (MAJOR_MISMATCH / MINOR_MISMATCH / NO_PROVIDER): version bounds simply
+// do not apply to it. A provider is still resolved by interface_name alone, purely so the QoS layer
+// above has something to check (lowest node name wins, for determinism); if no provider exists at
+// all, the entry has nothing to admit and is silently skipped (no row is reported for it, mirroring
+// how the runtime trigger skips a not-yet-started provider rather than rejecting it).
 inline std::vector<AdmissionResult> evaluate_deploy(
-  const std::vector<InterfaceManifest> & manifests)
+  const std::vector<InterfaceManifest> & manifests,
+  const std::map<std::string, QosRecord> & spec_pivots)
 {
   struct ProviderEntry
   {
@@ -184,11 +302,32 @@ inline std::vector<AdmissionResult> evaluate_deploy(
   std::vector<AdmissionResult> results;
   for (const auto & m : manifests) {
     for (const auto & r : m.required) {
+      const auto it = providers.find(r.interface_name);
+
+      if (!r.has_version) {
+        if (it == providers.end() || it->second.empty()) {
+          continue;  // nothing to admit against; not a NO_PROVIDER, just skipped
+        }
+        const ProviderEntry * matched = &it->second.front();
+        for (const auto & entry : it->second) {
+          if (entry.node < matched->node) {
+            matched = &entry;
+          }
+        }
+        AdmissionResult res;
+        res.consumer_node = m.node_name;
+        res.interface_name = r.interface_name;
+        res.provider_node = matched->node;
+        res.code = ACCEPTED;
+        apply_qos_verdict(res, matched->p, r, spec_pivots);
+        results.push_back(res);
+        continue;
+      }
+
       AdmissionResult res;
       res.consumer_node = m.node_name;
       res.interface_name = r.interface_name;
 
-      const auto it = providers.find(r.interface_name);
       if (it == providers.end() || it->second.empty()) {
         // Complete-set semantics: a required interface with no provider anywhere is a hard reject.
         res.code = NO_PROVIDER;
@@ -211,6 +350,7 @@ inline std::vector<AdmissionResult> evaluate_deploy(
       if (accepted != nullptr) {
         res.code = ACCEPTED;
         res.provider_node = accepted->node;
+        apply_qos_verdict(res, accepted->p, r, spec_pivots);
       } else {
         // No provider satisfied the version bounds. Blame by a stable total order (not manifest
         // order): a provider whose MAJOR is already in range (the actionable MINOR_MISMATCH) first,
@@ -233,6 +373,15 @@ inline std::vector<AdmissionResult> evaluate_deploy(
   return results;
 }
 
+// Version-only overload, kept for existing callers: equivalent to evaluate_deploy(manifests, {}),
+// i.e. no spec pivot data available, so any otherwise-ACCEPTED pairing that carries QoS on both
+// sides falls back to the no-pivot-row direct compatibility check in apply_qos_verdict().
+inline std::vector<AdmissionResult> evaluate_deploy(
+  const std::vector<InterfaceManifest> & manifests)
+{
+  return evaluate_deploy(manifests, {});
+}
+
 // The human-readable reason is derived from the verdict code off-wire — it is not carried on
 // AdmissionResult (the code is the single source of identity, matching the future error-code
 // reuse described above, not an existing Autoware-wide mechanism today). Covers both the runtime
@@ -250,6 +399,12 @@ inline const char * verdict_text(std::uint16_t code)
       return "resolved-topic mismatch (remap)";
     case NO_PROVIDER:
       return "required interface has no provider in the set";
+    case QOS_PIVOT_PROVIDER:
+      return "QOS pivot violation: provider offers below the registered pivot";
+    case QOS_PIVOT_CONSUMER:
+      return "QOS pivot violation: consumer requests above the registered pivot";
+    case QOS_PAIR_INCOMPATIBLE:
+      return "QOS incompatible: no pivot registered and offered/requested QoS do not match";
     default:
       return "unknown";
   }

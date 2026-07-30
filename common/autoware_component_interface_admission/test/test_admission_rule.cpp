@@ -18,7 +18,10 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace adm = autoware::component_interface_admission;
 
@@ -55,6 +58,58 @@ adm::InterfaceManifest consumer(
   r.min_minor = min_minor;
   m.required.push_back(r);
   return m;
+}
+
+// --- QoS pivot verdict fixtures ---
+
+adm::InterfaceManifest make_manifest_with_provided(
+  const std::string & node, const std::string & interface_name, adm::QosRecord qos)
+{
+  adm::InterfaceManifest m;
+  m.node_name = node;
+  adm::ProvidedInterface p;
+  p.interface_name = interface_name;
+  p.resolved_name = interface_name;
+  p.has_qos = true;
+  p.qos = std::move(qos);
+  m.provided.push_back(std::move(p));
+  return m;
+}
+
+adm::InterfaceManifest make_manifest_with_provided_no_qos(
+  const std::string & node, const std::string & interface_name)
+{
+  adm::InterfaceManifest m;
+  m.node_name = node;
+  adm::ProvidedInterface p;
+  p.interface_name = interface_name;
+  p.resolved_name = interface_name;
+  m.provided.push_back(std::move(p));
+  return m;
+}
+
+adm::InterfaceManifest make_manifest_with_required(
+  const std::string & node, const std::string & interface_name, adm::QosRecord qos)
+{
+  adm::InterfaceManifest m;
+  m.node_name = node;
+  adm::RequiredInterface r;
+  r.interface_name = interface_name;
+  r.resolved_name = interface_name;
+  r.has_qos = true;
+  r.qos = std::move(qos);
+  m.required.push_back(std::move(r));
+  return m;
+}
+
+bool has_verdict(const std::vector<adm::AdmissionResult> & results, std::uint16_t code)
+{
+  for (const auto & r : results) {
+    if (r.code == code) {
+      return true;
+    }
+  }
+  return false;
 }
 }  // namespace
 
@@ -263,4 +318,167 @@ TEST(AdmissionRule, topic_mismatch_provider_is_independent_of_manifest_order)
   ASSERT_EQ(reversed.size(), 1u);
   EXPECT_EQ(forward[0].code, adm::TOPIC_MISMATCH);
   EXPECT_EQ(forward[0].provider_node, reversed[0].provider_node);
+}
+
+TEST(AdmissionRule, verdict_text_covers_the_qos_codes_too)
+{
+  for (const std::uint16_t code :
+       {adm::QOS_PIVOT_PROVIDER, adm::QOS_PIVOT_CONSUMER, adm::QOS_PAIR_INCOMPATIBLE}) {
+    EXPECT_STRNE(adm::verdict_text(code), "");
+  }
+}
+
+// --- Pivot QoS verdicts (evaluate_deploy(manifests, spec_pivots)) ---
+
+TEST(admission_rule, provider_below_pivot_is_rejected)
+{
+  auto provider = make_manifest_with_provided("/n1", "/t", /*qos*/ {"best_effort", "volatile", 1});
+  auto consumer = make_manifest_with_required("/n2", "/t", /*qos*/ {"best_effort", "volatile", 1});
+  std::map<std::string, adm::QosRecord> pivots{{"/t", {"reliable", "volatile", 1}}};
+  const auto verdicts = adm::evaluate_deploy({provider, consumer}, pivots);
+  EXPECT_TRUE(has_verdict(verdicts, adm::QOS_PIVOT_PROVIDER));
+}
+
+TEST(admission_rule, provider_stronger_durability_than_pivot_is_accepted)
+{
+  // provider transient_local vs pivot volatile: offered ranks above the pivot -> accepted.
+  auto provider = make_manifest_with_provided("/n1", "/t", {"reliable", "transient_local", 1});
+  auto consumer = make_manifest_with_required("/n2", "/t", {"reliable", "volatile", 1});
+  std::map<std::string, adm::QosRecord> pivots{{"/t", {"reliable", "volatile", 1}}};
+  const auto verdicts = adm::evaluate_deploy({provider, consumer}, pivots);
+  EXPECT_FALSE(has_verdict(verdicts, adm::QOS_PIVOT_PROVIDER));
+  EXPECT_TRUE(has_verdict(verdicts, adm::ACCEPTED));
+}
+
+TEST(admission_rule, consumer_requesting_above_pivot_is_rejected)
+{
+  // consumer requests transient_local, but the pivot is only volatile -> requested exceeds pivot.
+  auto provider = make_manifest_with_provided("/n1", "/t", {"reliable", "volatile", 1});
+  auto consumer = make_manifest_with_required("/n2", "/t", {"reliable", "transient_local", 1});
+  std::map<std::string, adm::QosRecord> pivots{{"/t", {"reliable", "volatile", 1}}};
+  const auto verdicts = adm::evaluate_deploy({provider, consumer}, pivots);
+  EXPECT_TRUE(has_verdict(verdicts, adm::QOS_PIVOT_CONSUMER));
+}
+
+TEST(admission_rule, consumer_requesting_below_pivot_is_accepted)
+{
+  // consumer requests best_effort against a reliable pivot: requested <= pivot -> accepted.
+  auto provider = make_manifest_with_provided("/n1", "/t", {"reliable", "volatile", 1});
+  auto consumer = make_manifest_with_required("/n2", "/t", {"best_effort", "volatile", 1});
+  std::map<std::string, adm::QosRecord> pivots{{"/t", {"reliable", "volatile", 1}}};
+  const auto verdicts = adm::evaluate_deploy({provider, consumer}, pivots);
+  EXPECT_FALSE(has_verdict(verdicts, adm::QOS_PIVOT_CONSUMER));
+  EXPECT_FALSE(has_verdict(verdicts, adm::QOS_PIVOT_PROVIDER));
+  EXPECT_TRUE(has_verdict(verdicts, adm::ACCEPTED));
+}
+
+TEST(admission_rule, no_pivot_row_incompatible_pair_is_rejected)
+{
+  // A vendor / unversioned interface with no registered pivot: fall back to direct offered >=
+  // requested pairing. offered best_effort < requested reliable -> QOS_PAIR_INCOMPATIBLE.
+  auto provider = make_manifest_with_provided("/n1", "/vendor_if", {"best_effort", "volatile", 1});
+  auto consumer = make_manifest_with_required("/n2", "/vendor_if", {"reliable", "volatile", 1});
+  const auto verdicts = adm::evaluate_deploy({provider, consumer}, {});
+  EXPECT_TRUE(has_verdict(verdicts, adm::QOS_PAIR_INCOMPATIBLE));
+}
+
+TEST(admission_rule, no_pivot_row_compatible_pair_is_accepted)
+{
+  auto provider = make_manifest_with_provided("/n1", "/vendor_if", {"reliable", "volatile", 1});
+  auto consumer = make_manifest_with_required("/n2", "/vendor_if", {"best_effort", "volatile", 1});
+  const auto verdicts = adm::evaluate_deploy({provider, consumer}, {});
+  EXPECT_FALSE(has_verdict(verdicts, adm::QOS_PAIR_INCOMPATIBLE));
+  EXPECT_TRUE(has_verdict(verdicts, adm::ACCEPTED));
+}
+
+TEST(admission_rule, provider_without_qos_produces_no_qos_verdict)
+{
+  // The warning for a missing qos is a CLI-level concern (manifest_admit), not a verdict here.
+  auto provider = make_manifest_with_provided_no_qos("/n1", "/t");
+  auto consumer = make_manifest_with_required("/n2", "/t", {"reliable", "volatile", 1});
+  std::map<std::string, adm::QosRecord> pivots{{"/t", {"reliable", "volatile", 1}}};
+  const auto verdicts = adm::evaluate_deploy({provider, consumer}, pivots);
+  EXPECT_FALSE(has_verdict(verdicts, adm::QOS_PIVOT_PROVIDER));
+  EXPECT_FALSE(has_verdict(verdicts, adm::QOS_PIVOT_CONSUMER));
+  EXPECT_FALSE(has_verdict(verdicts, adm::QOS_PAIR_INCOMPATIBLE));
+  EXPECT_TRUE(has_verdict(verdicts, adm::ACCEPTED));
+}
+
+TEST(admission_rule, depth_mismatch_never_produces_a_verdict)
+{
+  // depth is presentational only; a 1-vs-10 mismatch must never surface as a verdict, whether
+  // there is a pivot row or not.
+  auto provider = make_manifest_with_provided("/n1", "/t", {"reliable", "volatile", 1});
+  auto consumer = make_manifest_with_required("/n2", "/t", {"reliable", "volatile", 10});
+
+  std::map<std::string, adm::QosRecord> pivots{{"/t", {"reliable", "volatile", 5}}};
+  const auto with_pivot = adm::evaluate_deploy({provider, consumer}, pivots);
+  EXPECT_FALSE(has_verdict(with_pivot, adm::QOS_PIVOT_PROVIDER));
+  EXPECT_FALSE(has_verdict(with_pivot, adm::QOS_PIVOT_CONSUMER));
+  EXPECT_TRUE(has_verdict(with_pivot, adm::ACCEPTED));
+
+  const auto without_pivot = adm::evaluate_deploy({provider, consumer});
+  EXPECT_FALSE(has_verdict(without_pivot, adm::QOS_PAIR_INCOMPATIBLE));
+  EXPECT_TRUE(has_verdict(without_pivot, adm::ACCEPTED));
+}
+
+TEST(admission_rule, unversioned_required_entry_never_yields_a_version_verdict)
+{
+  // has_version == false must suppress MAJOR_MISMATCH / MINOR_MISMATCH / NO_PROVIDER entirely --
+  // version bounds simply do not apply -- even though the provider's MAJOR (9) would mismatch under
+  // a versioned check.
+  adm::InterfaceManifest prov_m;
+  prov_m.node_name = "/n1";
+  adm::ProvidedInterface p;
+  p.interface_name = "/t";
+  p.resolved_name = "/t";
+  p.major = 9;
+  p.has_qos = true;
+  p.qos = {"reliable", "volatile", 1};
+  prov_m.provided.push_back(p);
+
+  adm::InterfaceManifest cons_m;
+  cons_m.node_name = "/n2";
+  adm::RequiredInterface r;
+  r.interface_name = "/t";
+  r.resolved_name = "/t";
+  r.has_version = false;
+  r.has_qos = true;
+  r.qos = {"reliable", "volatile", 1};
+  cons_m.required.push_back(r);
+
+  const auto verdicts = adm::evaluate_deploy({prov_m, cons_m});
+  ASSERT_FALSE(verdicts.empty());
+  EXPECT_FALSE(has_verdict(verdicts, adm::MAJOR_MISMATCH));
+  EXPECT_FALSE(has_verdict(verdicts, adm::MINOR_MISMATCH));
+  EXPECT_FALSE(has_verdict(verdicts, adm::NO_PROVIDER));
+  EXPECT_TRUE(has_verdict(verdicts, adm::ACCEPTED));
+}
+
+TEST(admission_rule, unversioned_required_entry_with_no_provider_is_skipped)
+{
+  // No provider anywhere for an unversioned entry: nothing to admit, so no row is reported at all
+  // -- in particular, NOT a NO_PROVIDER (that verdict is reserved for the versioned path).
+  adm::InterfaceManifest cons_m;
+  cons_m.node_name = "/n2";
+  adm::RequiredInterface r;
+  r.interface_name = "/nowhere";
+  r.resolved_name = "/nowhere";
+  r.has_version = false;
+  cons_m.required.push_back(r);
+
+  const auto verdicts = adm::evaluate_deploy({cons_m});
+  EXPECT_TRUE(verdicts.empty());
+}
+
+TEST(admission_rule, old_signature_delegates_to_an_empty_pivot_map)
+{
+  auto provider = make_manifest_with_provided("/n1", "/vendor_if", {"reliable", "volatile", 1});
+  auto consumer = make_manifest_with_required("/n2", "/vendor_if", {"best_effort", "volatile", 1});
+  const auto one_arg = adm::evaluate_deploy({provider, consumer});
+  const auto two_arg = adm::evaluate_deploy({provider, consumer}, {});
+  ASSERT_EQ(one_arg.size(), two_arg.size());
+  for (std::size_t i = 0; i < one_arg.size(); ++i) {
+    EXPECT_EQ(one_arg[i].code, two_arg[i].code);
+  }
 }
