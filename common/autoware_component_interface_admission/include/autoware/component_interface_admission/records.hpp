@@ -56,7 +56,10 @@ struct ProvidedInterface
   // Whether major/minor/patch were present in the source manifest. A v1 document always carries
   // them (true, the default here). A v2 document may omit all three for an endpoint whose spec is
   // unversioned, in which case this is false and major/minor/patch stay at their 0 default; version
-  // verdicts (MAJOR_MISMATCH / MINOR_MISMATCH / NO_PROVIDER) must skip such an entry.
+  // verdicts (MAJOR_MISMATCH / MINOR_MISMATCH) must skip such an entry rather than comparing it
+  // against its all-zero default. NO_PROVIDER is NOT a version verdict -- it is a completeness
+  // verdict (the deploy image set is complete, so "no version-checkable provider exists anywhere"
+  // is knowable up front) and fires regardless of has_version; see admission_rule.hpp.
   bool has_version = true;
   // Whether `qos` below was present in the source manifest. Absent in every v1 document and in a
   // v2 document for an endpoint that does not carry QoS in its manifest.
@@ -82,7 +85,8 @@ struct RequiredInterface
   std::uint16_t accept_major_max{0};
   std::uint16_t min_minor{0};
   // Whether accept_major_min/accept_major_max/min_minor were present in the source manifest. See
-  // ProvidedInterface::has_version; the same v1-always-true / v2-may-omit rule applies.
+  // ProvidedInterface::has_version; the same v1-always-true / v2-may-omit rule applies, including
+  // the NO_PROVIDER exception (it fires for an unversioned required entry too).
   bool has_version = true;
   // Whether `qos` below was present in the source manifest. See ProvidedInterface::has_qos.
   bool has_qos = false;

@@ -108,7 +108,11 @@ int run_manifest_admit(
 
   const auto results = evaluate_deploy(manifests, spec_pivots);
   for (const auto & r : results) {
-    out << r.consumer_node << " <- " << r.provider_node << " [" << r.interface_name
+    // QOS_PIVOT_PROVIDER / QOS_PIVOT_CONSUMER are per-endpoint rows: one of the two node fields is
+    // left empty (see AdmissionResult), so it is substituted with a placeholder for readability.
+    const std::string consumer = r.consumer_node.empty() ? "(no consumer)" : r.consumer_node;
+    const std::string provider = r.provider_node.empty() ? "(no provider)" : r.provider_node;
+    out << consumer << " <- " << provider << " [" << r.interface_name
         << "]: " << verdict_text(r.code) << " (code=" << r.code << ")\n";
   }
   if (results.empty()) {

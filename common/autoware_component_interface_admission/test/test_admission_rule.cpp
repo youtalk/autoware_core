@@ -102,6 +102,18 @@ adm::InterfaceManifest make_manifest_with_required(
   return m;
 }
 
+adm::InterfaceManifest make_manifest_with_required_no_qos(
+  const std::string & node, const std::string & interface_name)
+{
+  adm::InterfaceManifest m;
+  m.node_name = node;
+  adm::RequiredInterface r;
+  r.interface_name = interface_name;
+  r.resolved_name = interface_name;
+  m.required.push_back(std::move(r));
+  return m;
+}
+
 bool has_verdict(const std::vector<adm::AdmissionResult> & results, std::uint16_t code)
 {
   for (const auto & r : results) {
@@ -455,10 +467,12 @@ TEST(admission_rule, unversioned_required_entry_never_yields_a_version_verdict)
   EXPECT_TRUE(has_verdict(verdicts, adm::ACCEPTED));
 }
 
-TEST(admission_rule, unversioned_required_entry_with_no_provider_is_skipped)
+TEST(admission_rule, unversioned_required_entry_with_no_provider_is_no_provider)
 {
-  // No provider anywhere for an unversioned entry: nothing to admit, so no row is reported at all
-  // -- in particular, NOT a NO_PROVIDER (that verdict is reserved for the versioned path).
+  // NO_PROVIDER is a completeness verdict, not a version verdict: the deploy image set is known
+  // complete up front, so a required entry with no provider anywhere must be reported regardless
+  // of whether it makes a version claim at all. This mirrors the pre-v2 behavior, where every
+  // required entry got this check.
   adm::InterfaceManifest cons_m;
   cons_m.node_name = "/n2";
   adm::RequiredInterface r;
@@ -468,7 +482,8 @@ TEST(admission_rule, unversioned_required_entry_with_no_provider_is_skipped)
   cons_m.required.push_back(r);
 
   const auto verdicts = adm::evaluate_deploy({cons_m});
-  EXPECT_TRUE(verdicts.empty());
+  ASSERT_EQ(verdicts.size(), 1u);
+  EXPECT_EQ(verdicts[0].code, adm::NO_PROVIDER);
 }
 
 TEST(admission_rule, old_signature_delegates_to_an_empty_pivot_map)
@@ -481,4 +496,165 @@ TEST(admission_rule, old_signature_delegates_to_an_empty_pivot_map)
   for (std::size_t i = 0; i < one_arg.size(); ++i) {
     EXPECT_EQ(one_arg[i].code, two_arg[i].code);
   }
+}
+
+// --- Pivot verdicts are per-ENDPOINT, checked independently of stage-1 pairing ---
+
+TEST(admission_rule, pivot_provider_violation_is_reported_even_without_a_qos_carrying_consumer)
+{
+  // A provider below the registered pivot must be flagged even though the paired consumer's
+  // required entry does not carry qos at all -- the pivot is a per-endpoint contract, not
+  // conditioned on a counterparty's own qos.
+  auto prov = make_manifest_with_provided("/n1", "/t", {"best_effort", "volatile", 1});
+  auto cons = make_manifest_with_required_no_qos("/n2", "/t");
+  const std::map<std::string, adm::QosRecord> pivots{{"/t", {"reliable", "volatile", 1}}};
+  const auto verdicts = adm::evaluate_deploy({prov, cons}, pivots);
+  EXPECT_TRUE(has_verdict(verdicts, adm::QOS_PIVOT_PROVIDER));
+}
+
+TEST(admission_rule, pivot_provider_violation_is_reported_even_with_no_consumer_at_all)
+{
+  // A publisher-only image with no consumer anywhere in the deploy set is exactly as checkable
+  // against the pivot as a matched pair -- that is the whole point of a pivot being a
+  // per-endpoint contract, and it is the common deployment shape, since fragments are per
+  // package.
+  auto prov = make_manifest_with_provided("/n1", "/t", {"best_effort", "volatile", 1});
+  const std::map<std::string, adm::QosRecord> pivots{{"/t", {"reliable", "volatile", 1}}};
+  const auto verdicts = adm::evaluate_deploy({prov}, pivots);
+  EXPECT_TRUE(has_verdict(verdicts, adm::QOS_PIVOT_PROVIDER));
+}
+
+TEST(admission_rule, pivot_consumer_violation_is_reported_even_without_a_qos_carrying_provider)
+{
+  // A consumer requesting above the pivot must be flagged even though the paired provider's
+  // provided entry does not carry qos at all.
+  auto prov = make_manifest_with_provided_no_qos("/n1", "/t");
+  auto cons = make_manifest_with_required("/n2", "/t", {"reliable", "transient_local", 1});
+  const std::map<std::string, adm::QosRecord> pivots{{"/t", {"reliable", "volatile", 1}}};
+  const auto verdicts = adm::evaluate_deploy({prov, cons}, pivots);
+  EXPECT_TRUE(has_verdict(verdicts, adm::QOS_PIVOT_CONSUMER));
+}
+
+TEST(admission_rule, every_provider_is_checked_against_the_pivot_independently)
+{
+  // Two providers of the same interface: stage-1 pairing matches the consumer to only one of
+  // them (the lowest node name), but the per-endpoint pivot check must not stop there -- the
+  // second, unmatched provider below the pivot must still be flagged, so a verdict does not
+  // depend on node-name ordering.
+  auto ok = make_manifest_with_provided("/a_ok", "/t", {"reliable", "volatile", 1});
+  auto bad = make_manifest_with_provided("/z_bad", "/t", {"best_effort", "volatile", 1});
+  auto cons = make_manifest_with_required("/n2", "/t", {"reliable", "volatile", 1});
+  const std::map<std::string, adm::QosRecord> pivots{{"/t", {"reliable", "volatile", 1}}};
+  const auto verdicts = adm::evaluate_deploy({ok, bad, cons}, pivots);
+  bool z_bad_flagged = false;
+  for (const auto & v : verdicts) {
+    if (v.code == adm::QOS_PIVOT_PROVIDER && v.provider_node == "/z_bad") {
+      z_bad_flagged = true;
+    }
+  }
+  EXPECT_TRUE(z_bad_flagged);
+}
+
+// --- has_version must be honored on the provider side too, at both triggers ---
+
+TEST(admission_rule, unversioned_provider_is_no_provider_against_a_narrow_accept_window)
+{
+  // An unversioned provider makes no version claim; a consumer requiring MAJOR in [1, 2] must
+  // not blame it with MAJOR_MISMATCH -- that would blame an entry that made no version claim.
+  // Treated like "no version-checkable provider exists", it is NO_PROVIDER instead.
+  adm::InterfaceManifest prov_m;
+  prov_m.node_name = "/n1";
+  adm::ProvidedInterface p;
+  p.interface_name = "/t";
+  p.resolved_name = "/t";
+  p.has_version = false;
+  prov_m.provided.push_back(p);
+
+  adm::InterfaceManifest cons_m;
+  cons_m.node_name = "/n2";
+  adm::RequiredInterface r;
+  r.interface_name = "/t";
+  r.resolved_name = "/t";
+  r.accept_major_min = 1;
+  r.accept_major_max = 2;
+  cons_m.required.push_back(r);
+
+  const auto verdicts = adm::evaluate_deploy({prov_m, cons_m});
+  ASSERT_EQ(verdicts.size(), 1u);
+  EXPECT_EQ(verdicts[0].code, adm::NO_PROVIDER);
+}
+
+TEST(admission_rule, unversioned_provider_does_not_fail_open_against_an_all_zero_accept_window)
+{
+  // The same unversioned provider against a consumer whose accept window is [0, 0]: the
+  // provider's absent version defaults to major=0, which would satisfy [0, 0] if that default
+  // were compared directly. It must not -- that is exactly the fail-open the parse-layer
+  // partial-key rule exists to prevent, reintroduced at the verdict layer.
+  adm::InterfaceManifest prov_m;
+  prov_m.node_name = "/n1";
+  adm::ProvidedInterface p;
+  p.interface_name = "/t";
+  p.resolved_name = "/t";
+  p.has_version = false;
+  prov_m.provided.push_back(p);
+
+  adm::InterfaceManifest cons_m;
+  cons_m.node_name = "/n2";
+  adm::RequiredInterface r;
+  r.interface_name = "/t";
+  r.resolved_name = "/t";
+  r.accept_major_min = 0;
+  r.accept_major_max = 0;
+  cons_m.required.push_back(r);
+
+  const auto verdicts = adm::evaluate_deploy({prov_m, cons_m});
+  ASSERT_EQ(verdicts.size(), 1u);
+  EXPECT_EQ(verdicts[0].code, adm::NO_PROVIDER);
+}
+
+TEST(
+  admission_rule, runtime_evaluate_never_yields_a_version_verdict_for_an_unversioned_required_entry)
+{
+  // The same has_version contract must hold at the runtime trigger too ("one rule, two
+  // triggers"): an unversioned required entry against a MAJOR-9 provider must be ACCEPTED, not
+  // MAJOR_MISMATCH.
+  adm::InterfaceManifest prov_m;
+  prov_m.node_name = "/n1";
+  adm::ProvidedInterface p;
+  p.interface_name = "/t";
+  p.resolved_name = "/t";
+  p.major = 9;
+  prov_m.provided.push_back(p);
+
+  adm::InterfaceManifest cons_m;
+  cons_m.node_name = "/n2";
+  adm::RequiredInterface r;
+  r.interface_name = "/t";
+  r.resolved_name = "/t";
+  r.has_version = false;
+  cons_m.required.push_back(r);
+
+  const auto verdicts = adm::evaluate({prov_m, cons_m});
+  ASSERT_EQ(verdicts.size(), 1u);
+  EXPECT_EQ(verdicts[0].code, adm::ACCEPTED);
+}
+
+// --- Fail-closed rank behavior (already correct; this is coverage only) ---
+
+TEST(admission_rule, reliability_rank_is_fail_closed_for_an_out_of_vocabulary_string)
+{
+  EXPECT_EQ(adm::reliability_rank("garbage"), -1);
+}
+
+TEST(admission_rule, durability_rank_is_fail_closed_for_an_out_of_vocabulary_string)
+{
+  EXPECT_EQ(adm::durability_rank("garbage"), -1);
+}
+
+TEST(admission_rule, qos_is_at_least_rejects_an_out_of_vocabulary_policy_string)
+{
+  // A garbage policy ranks -1 on both sides of the comparison, so it must never compare as "at
+  // least" anything, even against an equally-garbage counterpart.
+  EXPECT_FALSE(adm::qos_is_at_least({"garbage", "volatile", 1}, {"best_effort", "volatile", 1}));
+  EXPECT_FALSE(adm::qos_is_at_least({"reliable", "volatile", 1}, {"garbage", "volatile", 1}));
 }

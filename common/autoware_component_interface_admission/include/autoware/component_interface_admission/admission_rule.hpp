@@ -44,21 +44,33 @@ enum Verdict : std::uint16_t {
   // deploy-time only: a required interface has no provider in the composed set. The runtime
   // observe-mode evaluate() never emits this — a provider may simply not have started yet.
   NO_PROVIDER = 4,
-  // The three codes below are deploy-time only, layered on top of an otherwise-ACCEPTED version
-  // verdict by evaluate_deploy(manifests, spec_pivots) when both sides of a pairing carry QoS
-  // (ProvidedInterface::has_qos / RequiredInterface::has_qos). See apply_qos_verdict().
+  // The three codes below are deploy-time only.
   //
-  // A pivot is registered for this interface (autoware_component_interface_specs'
-  // interface_manifest.json) and the provider's offered QoS ranks below it.
+  // QOS_PIVOT_PROVIDER and QOS_PIVOT_CONSUMER are per-ENDPOINT verdicts, reported independently of
+  // stage-1 pairing by collect_pivot_endpoint_verdicts(): whenever a pivot is registered for an
+  // interface (autoware_component_interface_specs' interface_manifest.json) every `provided` entry
+  // with qos for it must offer at least the pivot, and every `required` entry with qos for it must
+  // request at most the pivot -- regardless of whether a counterparty for that specific pairing is
+  // present in this deploy set at all. A publisher-only image is exactly as checkable as a full
+  // pair; that is the whole point of a pivot. Such a row names only the one side it is about (see
+  // AdmissionResult below).
+  //
+  // The provider's offered QoS ranks below the registered pivot (empty consumer_node).
   QOS_PIVOT_PROVIDER = 5,
-  // A pivot is registered for this interface and the consumer's requested QoS ranks above it.
+  // The consumer's requested QoS ranks above the registered pivot (empty provider_node).
   QOS_PIVOT_CONSUMER = 6,
-  // No pivot is registered for this interface (e.g. a vendor / unversioned interface); the
-  // provider's offered QoS and the consumer's requested QoS are directly incompatible.
+  // QOS_PAIR_INCOMPATIBLE is a per-PAIR verdict instead, reported by apply_no_pivot_qos_verdict()
+  // only when NO pivot is registered for the interface (e.g. a vendor / unversioned interface) AND
+  // both sides of a stage-1-matched pairing carry qos: the provider's offered QoS and the
+  // consumer's requested QoS are then checked directly against each other.
   QOS_PAIR_INCOMPATIBLE = 7,
 };
 
-// One consumer <- provider interface pairing verdict.
+// One verdict row. For a version verdict (ACCEPTED / MAJOR_MISMATCH / MINOR_MISMATCH /
+// TOPIC_MISMATCH / NO_PROVIDER) and for QOS_PAIR_INCOMPATIBLE, both consumer_node and provider_node
+// are set -- it is a resolved consumer <- provider pairing. A per-endpoint pivot verdict
+// (QOS_PIVOT_PROVIDER / QOS_PIVOT_CONSUMER) is about exactly one side and leaves the other node
+// field empty; see collect_pivot_endpoint_verdicts().
 struct AdmissionResult
 {
   std::string consumer_node;
@@ -96,8 +108,8 @@ inline bool version_compatible(const RequiredInterface & r, const ProvidedInterf
 // autoware_component_interface_specs' qos_compatibility.hpp expresses this exact rank over RMW
 // enums (rmw_qos_reliability_policy_t / rmw_qos_durability_policy_t). The admission package
 // restates these ranks on the JSON string encoding (it is a no-dependency leaf that cannot include
-// this header). Change one and the other must follow: autoware_component_interface_admission,
-// admission_rule.hpp.
+// this header). Change one and the other must follow: autoware_component_interface_specs,
+// qos_compatibility.hpp.
 inline int reliability_rank(const std::string & policy)
 {
   if (policy == "best_effort") {
@@ -147,37 +159,81 @@ inline bool qos_is_at_least(const QosRecord & offered, const QosRecord & request
 // The pivot rule: a spec's declared QoS is a pivot, not an exact-match requirement. A provider must
 // offer at least the pivot and a consumer must request at most the pivot; transitivity of the QoS
 // partial order then guarantees every conforming pair connects (offered >= pivot >= requested).
+// This is a PER-ENDPOINT contract, not a per-pair one: it is checked independently for every
+// `provided` entry and every `required` entry that carries qos, by
+// collect_pivot_endpoint_verdicts() below, regardless of whether that specific endpoint has a
+// matched counterpart in this deploy set at all.
 //
-// Layers a QoS verdict on top of `res`, which must already hold an ACCEPTED (or, for an unversioned
-// entry, a provisionally-ACCEPTED) version verdict for the given provider/required pairing. Leaves
-// `res` untouched (still ACCEPTED) when either side of the pairing does not carry QoS at all — a
-// provider or a required entry without `qos` in its manifest is not something this package can
-// evaluate, so no QOS_* verdict is produced for it.
-inline void apply_qos_verdict(
+// DDS-style pairwise QoS fallback for interfaces with NO registered pivot (e.g. a vendor /
+// unversioned interface): there is nothing to check each endpoint against in isolation, so the gate
+// instead falls back to a direct offered-vs-requested compatibility check on the ONE
+// stage-1-matched pair. Layers that verdict on top of `res`, which must already hold an ACCEPTED
+// (or, for an unversioned entry, a provisionally-ACCEPTED) version verdict for the given
+// provider/required pairing. When a pivot IS registered for this interface, this function is a
+// no-op: the independent per-endpoint checks below are what runs instead. Also a no-op when either
+// side of the pairing does not carry QoS at all — a provider or a required entry without `qos` in
+// its manifest is not something this package can evaluate, so no QOS_* verdict is produced for it.
+inline void apply_no_pivot_qos_verdict(
   AdmissionResult & res, const ProvidedInterface & provider, const RequiredInterface & required,
   const std::map<std::string, QosRecord> & spec_pivots)
 {
   if (!provider.has_qos || !required.has_qos) {
     return;
   }
-
-  const auto pivot_it = spec_pivots.find(required.interface_name);
-  if (pivot_it != spec_pivots.end()) {
-    const auto & pivot = pivot_it->second;
-    if (!qos_is_at_least(provider.qos, pivot)) {
-      res.code = QOS_PIVOT_PROVIDER;
-      return;
-    }
-    if (!qos_is_at_least(pivot, required.qos)) {
-      res.code = QOS_PIVOT_CONSUMER;
-    }
-    return;
+  if (spec_pivots.find(required.interface_name) != spec_pivots.end()) {
+    return;  // a pivot is registered for this interface; see collect_pivot_endpoint_verdicts().
   }
-
-  // No pivot registered for this interface (e.g. a vendor / unversioned interface): fall back to a
-  // direct offered-vs-requested compatibility check.
   if (!qos_is_at_least(provider.qos, required.qos)) {
     res.code = QOS_PAIR_INCOMPATIBLE;
+  }
+}
+
+// The per-endpoint half of the pivot rule (see apply_no_pivot_qos_verdict() above for the no-pivot
+// fallback). Runs entirely independently of stage-1 pairing: it walks every `provided` and every
+// `required` entry across the whole deploy set directly, not the provider/consumer matches computed
+// elsewhere in evaluate_deploy(). A provider with no consumer in the set (a publisher-only image)
+// and a consumer with no provider in the set are each exactly as checkable as a matched pair — that
+// is the whole point of a pivot being a per-endpoint contract. A provider-side violation and a
+// consumer-side violation for the same interface are reported as two separate rows, each naming
+// only the one side it is about (empty consumer_node / empty provider_node respectively). `depth`
+// is never inspected here, matching qos_is_at_least().
+inline void collect_pivot_endpoint_verdicts(
+  const std::vector<InterfaceManifest> & manifests,
+  const std::map<std::string, QosRecord> & spec_pivots, std::vector<AdmissionResult> & results)
+{
+  for (const auto & m : manifests) {
+    for (const auto & p : m.provided) {
+      if (!p.has_qos) {
+        continue;
+      }
+      const auto pivot_it = spec_pivots.find(p.interface_name);
+      if (pivot_it == spec_pivots.end()) {
+        continue;  // no pivot registered for this interface: see apply_no_pivot_qos_verdict().
+      }
+      if (!qos_is_at_least(p.qos, pivot_it->second)) {
+        AdmissionResult res;
+        res.provider_node = m.node_name;
+        res.interface_name = p.interface_name;
+        res.code = QOS_PIVOT_PROVIDER;
+        results.push_back(res);
+      }
+    }
+    for (const auto & r : m.required) {
+      if (!r.has_qos) {
+        continue;
+      }
+      const auto pivot_it = spec_pivots.find(r.interface_name);
+      if (pivot_it == spec_pivots.end()) {
+        continue;
+      }
+      if (!qos_is_at_least(pivot_it->second, r.qos)) {
+        AdmissionResult res;
+        res.consumer_node = m.node_name;
+        res.interface_name = r.interface_name;
+        res.code = QOS_PIVOT_CONSUMER;
+        results.push_back(res);
+      }
+    }
   }
 }
 
@@ -187,8 +243,18 @@ inline void apply_qos_verdict(
 //   - version-ok but resolved_name disjoint       -> TOPIC_MISMATCH (remap false-accept caught)
 //   - MAJOR in range but min_minor unmet           -> MINOR_MISMATCH
 //   - otherwise                                    -> MAJOR_MISMATCH
-// A required interface with no provider is SKIPPED (not reported): under the runtime trigger the
-// provider may simply not have started yet, so absence is not yet a failure.
+// A required interface with no version-checkable provider is SKIPPED (not reported): under the
+// runtime trigger a provider may simply not have started yet, so absence is not yet a failure. This
+// applies whether there is literally no provider of the interface_name at all, or only unversioned
+// ones (has_version == false) -- see the has_version handling below.
+//
+// has_version == false, on either side, means "makes no version claim" and must never enter a
+// version verdict (I1 / the ported package's stated contract): a required entry with no version at
+// all is resolved by interface_name alone, ignoring every provider's has_version and version fields
+// entirely, and always ACCEPTED once any provider is found (there is nothing left to check). A
+// required entry that DOES declare a version treats an unversioned provider as invisible for this
+// purpose -- it is excluded from both the "accepted" and the "blamed" candidate pools, exactly like
+// it does not exist, rather than being silently compared against its all-zero default version.
 inline std::vector<AdmissionResult> evaluate(const std::vector<InterfaceManifest> & manifests)
 {
   struct ProviderEntry
@@ -211,18 +277,49 @@ inline std::vector<AdmissionResult> evaluate(const std::vector<InterfaceManifest
         continue;  // no provider yet — nothing to admit
       }
 
+      if (!r.has_version) {
+        // No version claim: resolve any provider by interface_name alone, ignoring its own
+        // has_version and resolved_name, for consistency with evaluate_deploy()'s treatment of the
+        // same v2 document. Version bounds simply do not apply, so there is nothing left to reject.
+        const ProviderEntry * matched = &it->second.front();
+        for (const auto & entry : it->second) {
+          if (entry.node < matched->node) {
+            matched = &entry;
+          }
+        }
+        AdmissionResult res;
+        res.consumer_node = m.node_name;
+        res.interface_name = r.interface_name;
+        res.provider_node = matched->node;
+        res.code = ACCEPTED;
+        results.push_back(res);
+        continue;
+      }
+
+      // Only version-checkable providers are candidates: an unversioned provider makes no version
+      // claim and must never enter a version verdict, on either the accepted or the blamed side.
+      std::vector<const ProviderEntry *> candidates;
+      for (const auto & entry : it->second) {
+        if (entry.p.has_version) {
+          candidates.push_back(&entry);
+        }
+      }
+      if (candidates.empty()) {
+        continue;  // only unversioned providers observed; treat like "not started yet"
+      }
+
       const ProviderEntry * wired = nullptr;             // version-ok AND same resolved wire topic
       const ProviderEntry * version_ok_other = nullptr;  // version-ok but disjoint wire topic
-      for (const auto & entry : it->second) {
-        if (version_compatible(r, entry.p)) {
-          if (entry.p.resolved_name == r.resolved_name) {
-            wired = &entry;
+      for (const auto * entry : candidates) {
+        if (version_compatible(r, entry->p)) {
+          if (entry->p.resolved_name == r.resolved_name) {
+            wired = entry;
             break;
           }
           // Lowest node name wins, so the reported provider does not depend on the order the
           // manifests were passed to manifest_admit.
-          if (version_ok_other == nullptr || entry.node < version_ok_other->node) {
-            version_ok_other = &entry;
+          if (version_ok_other == nullptr || entry->node < version_ok_other->node) {
+            version_ok_other = entry;
           }
         }
       }
@@ -247,10 +344,10 @@ inline std::vector<AdmissionResult> evaluate(const std::vector<InterfaceManifest
           const bool on_wire = e.p.resolved_name == r.resolved_name;
           return std::make_tuple(!on_wire, !major_in_range(r, e.p), e.node);
         };
-        const ProviderEntry * blame = &it->second.front();
-        for (const auto & entry : it->second) {
-          if (rank(entry) < rank(*blame)) {
-            blame = &entry;
+        const ProviderEntry * blame = candidates.front();
+        for (const auto * entry : candidates) {
+          if (rank(*entry) < rank(*blame)) {
+            blame = entry;
           }
         }
         res.provider_node = blame->node;
@@ -273,16 +370,25 @@ inline std::vector<AdmissionResult> evaluate(const std::vector<InterfaceManifest
 // set is reported as NO_PROVIDER.
 //
 // `spec_pivots` is the interface_name -> QoS map parsed by spec_pivots_from_json() from
-// autoware_component_interface_specs' interface_manifest.json. When a pairing that is otherwise
-// version-ACCEPTED has QoS on both sides, apply_qos_verdict() layers QOS_PIVOT_PROVIDER /
-// QOS_PIVOT_CONSUMER / QOS_PAIR_INCOMPATIBLE on top of it; see that function's comment.
+// autoware_component_interface_specs' interface_manifest.json. The QoS gate is layered on in two
+// independent parts, run once each over the whole deploy set: collect_pivot_endpoint_verdicts()
+// checks every provided/required entry that carries qos against a registered pivot, per endpoint,
+// regardless of pairing (QOS_PIVOT_PROVIDER / QOS_PIVOT_CONSUMER); apply_no_pivot_qos_verdict()
+// checks the one stage-1-matched pair directly, but only for an interface with NO registered pivot
+// (QOS_PAIR_INCOMPATIBLE). See both functions' comments.
 //
-// A required entry with has_version == false (a v2 manifest declaring no version at all) never
-// produces a version verdict (MAJOR_MISMATCH / MINOR_MISMATCH / NO_PROVIDER): version bounds simply
-// do not apply to it. A provider is still resolved by interface_name alone, purely so the QoS layer
-// above has something to check (lowest node name wins, for determinism); if no provider exists at
-// all, the entry has nothing to admit and is silently skipped (no row is reported for it, mirroring
-// how the runtime trigger skips a not-yet-started provider rather than rejecting it).
+// has_version == false, on either side, means "makes no version claim" and must never enter a
+// version verdict (I1). A required entry with no version at all never produces MAJOR_MISMATCH /
+// MINOR_MISMATCH: a provider is still resolved by interface_name alone, ignoring every candidate's
+// own has_version, purely so the no-pivot QoS fallback above has a pairing to check (lowest node
+// name wins, for determinism). A required entry that DOES declare a version excludes unversioned
+// providers from candidacy entirely -- they are invisible for version-verdict purposes, neither
+// accepted nor blamed, rather than being silently compared against their all-zero default version.
+// NO_PROVIDER, by contrast, is a completeness verdict, not a version verdict: because the deploy
+// image set is complete, it fires whenever no version-checkable provider exists for a required
+// entry ANYWHERE in the set, whether that entry declares a version or not, and whether the reason
+// is that literally no provider of the interface_name exists or that every provider of it is itself
+// unversioned. This mirrors the pre-v2 behavior, where every required entry got this check.
 inline std::vector<AdmissionResult> evaluate_deploy(
   const std::vector<InterfaceManifest> & manifests,
   const std::map<std::string, QosRecord> & spec_pivots)
@@ -306,7 +412,13 @@ inline std::vector<AdmissionResult> evaluate_deploy(
 
       if (!r.has_version) {
         if (it == providers.end() || it->second.empty()) {
-          continue;  // nothing to admit against; not a NO_PROVIDER, just skipped
+          // Completeness verdict: NO_PROVIDER fires regardless of has_version (I3).
+          AdmissionResult res;
+          res.consumer_node = m.node_name;
+          res.interface_name = r.interface_name;
+          res.code = NO_PROVIDER;
+          results.push_back(res);
+          continue;
         }
         const ProviderEntry * matched = &it->second.front();
         for (const auto & entry : it->second) {
@@ -319,7 +431,7 @@ inline std::vector<AdmissionResult> evaluate_deploy(
         res.interface_name = r.interface_name;
         res.provider_node = matched->node;
         res.code = ACCEPTED;
-        apply_qos_verdict(res, matched->p, r, spec_pivots);
+        apply_no_pivot_qos_verdict(res, matched->p, r, spec_pivots);
         results.push_back(res);
         continue;
       }
@@ -328,21 +440,34 @@ inline std::vector<AdmissionResult> evaluate_deploy(
       res.consumer_node = m.node_name;
       res.interface_name = r.interface_name;
 
-      if (it == providers.end() || it->second.empty()) {
-        // Complete-set semantics: a required interface with no provider anywhere is a hard reject.
+      // Only version-checkable providers (has_version == true) are candidates; an unversioned
+      // provider makes no version claim and must never enter a version verdict (I1).
+      std::vector<const ProviderEntry *> candidates;
+      if (it != providers.end()) {
+        for (const auto & entry : it->second) {
+          if (entry.p.has_version) {
+            candidates.push_back(&entry);
+          }
+        }
+      }
+
+      if (candidates.empty()) {
+        // Complete-set semantics: no version-checkable provider anywhere is a hard reject, whether
+        // because no provider of the interface_name exists at all or because every provider of it
+        // declined to state a version.
         res.code = NO_PROVIDER;
         results.push_back(res);
         continue;
       }
 
-      // Stage 1 only: accept if ANY provider of this interface is version-compatible. resolved_name
-      // (stage 2) is not statically visible at deploy time, so it is never inspected here.
+      // Stage 1 only: accept if ANY candidate is version-compatible. resolved_name (stage 2) is not
+      // statically visible at deploy time, so it is never inspected here.
       const ProviderEntry * accepted = nullptr;
-      for (const auto & entry : it->second) {
-        if (version_compatible(r, entry.p)) {
+      for (const auto * entry : candidates) {
+        if (version_compatible(r, entry->p)) {
           // Lowest node name wins, so the reported provider is independent of manifest order.
-          if (accepted == nullptr || entry.node < accepted->node) {
-            accepted = &entry;
+          if (accepted == nullptr || entry->node < accepted->node) {
+            accepted = entry;
           }
         }
       }
@@ -350,18 +475,18 @@ inline std::vector<AdmissionResult> evaluate_deploy(
       if (accepted != nullptr) {
         res.code = ACCEPTED;
         res.provider_node = accepted->node;
-        apply_qos_verdict(res, accepted->p, r, spec_pivots);
+        apply_no_pivot_qos_verdict(res, accepted->p, r, spec_pivots);
       } else {
-        // No provider satisfied the version bounds. Blame by a stable total order (not manifest
+        // No candidate satisfied the version bounds. Blame by a stable total order (not manifest
         // order): a provider whose MAJOR is already in range (the actionable MINOR_MISMATCH) first,
         // then the lowest node name.
         const auto rank = [&r](const ProviderEntry & e) {
           return std::make_tuple(!major_in_range(r, e.p), e.node);
         };
-        const ProviderEntry * blame = &it->second.front();
-        for (const auto & entry : it->second) {
-          if (rank(entry) < rank(*blame)) {
-            blame = &entry;
+        const ProviderEntry * blame = candidates.front();
+        for (const auto * entry : candidates) {
+          if (rank(*entry) < rank(*blame)) {
+            blame = entry;
           }
         }
         res.provider_node = blame->node;
@@ -370,12 +495,16 @@ inline std::vector<AdmissionResult> evaluate_deploy(
       results.push_back(res);
     }
   }
+
+  // Per-endpoint pivot conformance: independent of the pairing loop above (see
+  // collect_pivot_endpoint_verdicts()'s comment).
+  collect_pivot_endpoint_verdicts(manifests, spec_pivots, results);
+
   return results;
 }
 
 // Version-only overload, kept for existing callers: equivalent to evaluate_deploy(manifests, {}),
-// i.e. no spec pivot data available, so any otherwise-ACCEPTED pairing that carries QoS on both
-// sides falls back to the no-pivot-row direct compatibility check in apply_qos_verdict().
+// i.e. no spec pivot data available, so every interface falls into the no-pivot-row path above.
 inline std::vector<AdmissionResult> evaluate_deploy(
   const std::vector<InterfaceManifest> & manifests)
 {

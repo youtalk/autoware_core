@@ -32,19 +32,28 @@ The one place the two triggers differ is a required interface with no provider:
 - **Runtime** (`evaluate()`): such a required interface is **skipped** — under the runtime trigger a provider may simply not have started yet, so absence is not yet a failure.
 - **Deploy-time** (`evaluate_deploy()`): the image set is complete, so a required interface with no provider anywhere in the set is a hard `NO_PROVIDER` rejection.
 
+`NO_PROVIDER` is a **completeness** verdict, not a version verdict: it fires whenever no version-checkable provider exists anywhere in the set for a required entry — whether because literally no provider of the `interface_name` exists, or every provider of it is itself unversioned (`has_version == false`) — regardless of whether the required entry itself declares a version. A required entry with `has_version == false` still gets this check, matching the pre-v2 behavior where every required entry did.
+
 The deploy-time gate matches on **version + `interface_name` only** (stage 1). The remap-resolved `resolved_name` match (stage 2 of the rule) is runtime-only, because remaps live in the launch / compose layer and are not visible in image metadata — so `evaluate_deploy()` never inspects `resolved_name` and never emits `TOPIC_MISMATCH`. That residual remap false-accept is exactly what the runtime trigger backstops.
 
 ### QoS pivot verdicts (deploy-time only)
 
-A v2 manifest entry may also carry a `qos` block (`reliability`, `durability`, `depth`; see the JSON schema below). When an otherwise-`ACCEPTED` pairing has `qos` on **both** the matched provider and the required entry, `evaluate_deploy()` layers one more verdict on top of the version verdict, using the **pivot rule**: an interface's declared QoS (from `autoware_component_interface_specs`' `interface_manifest.json`, parsed by `spec_pivots_from_json()`) is a pivot, not an exact-match requirement — a provider must offer at least the pivot and a consumer must request at most the pivot (`offered >= pivot >= requested`).
+A v2 manifest entry may also carry a `qos` block (`reliability`, `durability`, `depth`; see the JSON schema below). An interface's declared QoS (from `autoware_component_interface_specs`' `interface_manifest.json`, parsed by `spec_pivots_from_json()`) is a **pivot**, not an exact-match requirement — a provider must offer at least the pivot and a consumer must request at most the pivot (`offered >= pivot >= requested`); transitivity of the QoS partial order then guarantees every conforming pair connects.
 
-| Situation                                                                                                              | Verdict                 | Code |
-| ---------------------------------------------------------------------------------------------------------------------- | ----------------------- | ---- |
-| a pivot is registered for this interface and the provider's offered QoS ranks below it                                 | `QOS_PIVOT_PROVIDER`    | 5    |
-| a pivot is registered and the consumer's requested QoS ranks above it                                                  | `QOS_PIVOT_CONSUMER`    | 6    |
-| no pivot is registered (e.g. a vendor / unversioned interface) and the offered/requested pair is directly incompatible | `QOS_PAIR_INCOMPATIBLE` | 7    |
+Whether that pivot is checked **per endpoint** or **per pairing** depends on whether one is registered for the interface at all:
 
-`depth` is endpoint-local and **presentational only**: it never participates in a verdict, on either the pivot or the no-pivot path. A required entry declared without a version at all (`has_version == false` in a v2 document) never produces a version verdict, but is still QoS-checked against a provider resolved by `interface_name` alone. `reliability_rank()` / `durability_rank()` in `admission_rule.hpp` restate, on this package's JSON string encoding, the exact same strength ranks `autoware_component_interface_specs`' `qos_compatibility.hpp` expresses over RMW enums — this package is a no-dependency leaf and cannot include that header, so the two are deliberately duplicated and cross-referenced; change one and the other must follow. An out-of-vocabulary policy string ranks as incomparable (fail closed): every comparison against it fails.
+- **With a pivot registered**: `evaluate_deploy()` checks every `provided` entry that carries `qos` and every `required` entry that carries `qos` against the pivot **independently of pairing** — a publisher-only image with no consumer anywhere in the set, or a second provider of the same interface that a stage-1 match never picked, is exactly as checkable as a matched pair. This is the whole point of a pivot being a per-endpoint contract. Such a verdict names only the one side it is about (see `AdmissionResult`, below).
+- **Without a pivot registered** (e.g. a vendor / unversioned interface): there is nothing to check each endpoint against in isolation, so the gate falls back to a direct offered-vs-requested compatibility check on the one stage-1-matched pairing, and only when **both** sides of that pairing carry `qos`.
+
+| Situation                                                                                                   | Verdict                 | Code | Per-endpoint or per-pair |
+| ----------------------------------------------------------------------------------------------------------- | ----------------------- | ---- | ------------------------ |
+| a pivot is registered for this interface and a provider's offered QoS ranks below it                        | `QOS_PIVOT_PROVIDER`    | 5    | per-endpoint             |
+| a pivot is registered and a consumer's requested QoS ranks above it                                         | `QOS_PIVOT_CONSUMER`    | 6    | per-endpoint             |
+| no pivot is registered and the one stage-1-matched pairing's offered/requested QoS is directly incompatible | `QOS_PAIR_INCOMPATIBLE` | 7    | per-pair                 |
+
+A provider-side and a consumer-side pivot violation for the same interface are reported as two separate rows (`AdmissionResult` leaves the other side's node field empty for these two codes), never merged into one.
+
+`depth` is endpoint-local and **presentational only**: it never participates in a verdict, on any of the three paths above. A required entry declared without a version at all (`has_version == false` in a v2 document) never produces a version verdict, but a provider is still resolved for it by `interface_name` alone (if one exists) so the no-pivot QoS fallback has a pairing to check; if none exists, it is `NO_PROVIDER` like any other required entry (see above). `reliability_rank()` / `durability_rank()` in `admission_rule.hpp` restate, on this package's JSON string encoding, the exact same strength ranks `autoware_component_interface_specs`' `qos_compatibility.hpp` expresses over RMW enums — this package is a no-dependency leaf and cannot include that header, so the two are deliberately duplicated and cross-referenced; change one and the other must follow. An out-of-vocabulary policy string ranks as incomparable (fail closed): every comparison against it fails.
 
 ## Records and JSON schema
 
@@ -111,7 +120,7 @@ Each component image carries its interface manifest as **pure image metadata**, 
 - **Primary**: the OCI image label `org.autoware.interface_manifest`, whose value is the JSON payload above. Read with `docker inspect` (or `skopeo inspect` / `crane config` against a registry, without pulling).
 - **Secondary**: the fixed path `/opt/autoware/manifest.json` inside the image.
 
-The operator / CI entry point (a `deploy_check.sh` shipped by the meta-repo, out of scope for this package) resolves the image set from the deploy config, extracts each image's label, writes each to a file, and invokes this package's CLI. `--spec-manifest` is optional; pass it to also layer the QoS pivot check described above onto every pairing that carries `qos` on both sides:
+The operator / CI entry point (a `deploy_check.sh` shipped by the meta-repo, out of scope for this package) resolves the image set from the deploy config, extracts each image's label, writes each to a file, and invokes this package's CLI. `--spec-manifest` is optional; pass it to also register the QoS pivots described above, so every `provided` / `required` entry that carries `qos` is checked against its pivot (repeatable: the last occurrence wins):
 
 ```bash
 ros2 run autoware_component_interface_admission manifest_admit \

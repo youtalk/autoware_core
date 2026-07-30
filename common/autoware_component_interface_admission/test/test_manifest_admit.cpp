@@ -182,6 +182,41 @@ TEST(ManifestAdmitCli, missing_qos_manifests_exit_0_with_a_warning_on_stderr)
   EXPECT_NE(err.str().find("warning:"), std::string::npos);
 }
 
+TEST(ManifestAdmitCli, spec_manifest_flag_with_no_value_exits_2)
+{
+  std::ostringstream out;
+  std::ostringstream err;
+  const int code = adm::run_manifest_admit({"--spec-manifest"}, out, err);
+  EXPECT_EQ(code, 2);
+}
+
+TEST(ManifestAdmitCli, spec_manifest_flag_given_twice_the_last_one_wins)
+{
+  // The first --spec-manifest points at a pivot manifest that would reject this pairing (a
+  // reliable pivot against a best_effort provider); the second, later one is a no-op empty
+  // interface list, so the pairing must pass -- proving the second occurrence overrides the
+  // first rather than merging with or being ignored in favor of it.
+  const std::string strict_spec_path = write_temp_file("cli_spec_twice_strict.json", R"({
+    "qos_semantics": "pivot",
+    "interfaces": [{"interface": "/t",
+                    "qos": {"reliability": "reliable", "durability": "volatile", "depth": 1}}]
+  })");
+  const std::string lenient_spec_path = write_temp_file(
+    "cli_spec_twice_lenient.json", R"({"qos_semantics": "pivot", "interfaces": []})");
+  const std::string prov_path = write_temp_file(
+    "cli_provider_twice.json", provided_qos_manifest_json("/n1", "/t", "best_effort", "volatile"));
+  const std::string cons_path = write_temp_file(
+    "cli_consumer_twice.json", required_qos_manifest_json("/n2", "/t", "best_effort", "volatile"));
+
+  std::ostringstream out;
+  std::ostringstream err;
+  const int code = adm::run_manifest_admit(
+    {"--spec-manifest", strict_spec_path, "--spec-manifest", lenient_spec_path, prov_path,
+     cons_path},
+    out, err);
+  EXPECT_EQ(code, 0);
+}
+
 TEST(ManifestAdmitCli, malformed_spec_manifest_exits_2)
 {
   const std::string spec_path =
