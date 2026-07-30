@@ -52,13 +52,17 @@ typename Service<SpecT>::SharedPtr create_service_impl(
 }
 
 /// Create a publisher using traits like services. This is a private implementation.
+/// The QoS defaults to the spec's own pivot; callers that need an explicit
+/// override go through NodeAdaptor::create_publisher(const rclcpp::QoS &),
+/// which validates it against the pivot before delegating here.
 template <class SpecT>
-typename Publisher<SpecT>::SharedPtr create_publisher_impl(NodeInterface::SharedPtr interface)
+typename Publisher<SpecT>::SharedPtr create_publisher_impl(
+  NodeInterface::SharedPtr interface, const rclcpp::QoS & qos = get_qos<SpecT>())
 {
   // This function is a wrapper for the following.
   // https://github.com/ros2/rclcpp/blob/48068130edbb43cdd61076dc1851672ff1a80408/rclcpp/include/rclcpp/node.hpp#L167-L205
-  auto publisher = interface->node->template create_publisher<typename SpecT::Message>(
-    SpecT::name, get_qos<SpecT>());
+  auto publisher =
+    interface->node->template create_publisher<typename SpecT::Message>(SpecT::name, qos);
   interface->register_interface(
     make_record<SpecT>(
       InterfaceRecord::Kind::Topic, InterfaceRecord::Role::Provide, publisher->get_topic_name(),
@@ -68,16 +72,20 @@ typename Publisher<SpecT>::SharedPtr create_publisher_impl(NodeInterface::Shared
 }
 
 /// Create a subscription using traits like services. This is a private implementation.
+/// The QoS defaults to the spec's own pivot; callers that need an explicit
+/// override go through NodeAdaptor::create_subscription(..., const rclcpp::QoS &),
+/// which validates it against the pivot before delegating here.
 template <class SpecT, class CallbackT>
 typename Subscription<SpecT>::SharedPtr create_subscription_impl(
-  NodeInterface::SharedPtr interface, CallbackT && callback)
+  NodeInterface::SharedPtr interface, CallbackT && callback,
+  const rclcpp::QoS & qos = get_qos<SpecT>())
 {
   typename rclcpp::Subscription<typename SpecT::Message>::SharedPtr subscription;
   if constexpr (!std::is_null_pointer_v<CallbackT>) {
     // This function is a wrapper for the following.
     // https://github.com/ros2/rclcpp/blob/48068130edbb43cdd61076dc1851672ff1a80408/rclcpp/include/rclcpp/node.hpp#L207-L238
     subscription = interface->node->template create_subscription<typename SpecT::Message>(
-      SpecT::name, get_qos<SpecT>(), std::forward<CallbackT>(callback));
+      SpecT::name, qos, std::forward<CallbackT>(callback));
   } else {
     // If the callback is nullptr, create a subscription for polling.
     // https://github.com/autowarefoundation/autoware.universe/tree/main/common/autoware_universe_utils/include/autoware/universe_utils/ros/polling_subscriber.hpp
@@ -87,7 +95,7 @@ typename Subscription<SpecT>::SharedPtr create_subscription_impl(
     options.callback_group = group;
 
     subscription = interface->node->template create_subscription<typename SpecT::Message>(
-      SpecT::name, get_qos<SpecT>(), [](const typename SpecT::Message) {}, options);
+      SpecT::name, qos, [](const typename SpecT::Message) {}, options);
   }
   interface->register_interface(
     make_record<SpecT>(

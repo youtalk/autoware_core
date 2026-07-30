@@ -49,6 +49,24 @@ if(BUILD_TESTING)
     autoware_component_interface_specs
   )
 
+  # Its own target (rather than an added source in an existing one) so its
+  # local test_specs::PivotRV never shares a translation unit -- or a linked
+  # binary -- with the test_specs types the other graph-test target declares.
+  ament_add_ros_isolated_gtest(test_qos_override
+    test/test_qos_override.cpp
+  )
+
+  target_include_directories(test_qos_override
+    PRIVATE include
+  )
+
+  ament_target_dependencies(test_qos_override
+    rclcpp
+    rclcpp_components
+    autoware_adapi_v1_msgs
+    autoware_component_interface_specs
+  )
+
   # Pure mapping logic over InterfaceRecord -- no rclcpp::init(), no Node, no ROS
   # graph -- so it does not need the isolated-domain-ID treatment the two
   # targets above require.

@@ -18,6 +18,7 @@
 #include <autoware_adapi_v1_msgs/msg/response_status.hpp>
 
 #include <exception>
+#include <stdexcept>
 #include <string>
 
 namespace autoware::component_interface_utils
@@ -102,6 +103,16 @@ public:
   : ServiceException(ResponseStatus::NO_EFFECT, message, true)
   {
   }
+};
+
+/// A QoS override that violates the spec's pivot contract (a provider offering
+/// weaker than the pivot, or a consumer requesting stronger). Thrown at
+/// construction so a non-conforming node fails to start rather than run on a
+/// contract nothing admitted.
+class QosContractViolation : public std::runtime_error
+{
+public:
+  using std::runtime_error::runtime_error;
 };
 
 }  // namespace autoware::component_interface_utils

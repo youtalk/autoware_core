@@ -15,7 +15,9 @@
 #ifndef AUTOWARE__COMPONENT_INTERFACE_UTILS__RCLCPP_HPP_
 #define AUTOWARE__COMPONENT_INTERFACE_UTILS__RCLCPP_HPP_
 
+#include <autoware/component_interface_specs/qos_compatibility.hpp>
 #include <autoware/component_interface_utils/rclcpp/create_interface.hpp>
+#include <autoware/component_interface_utils/rclcpp/exceptions.hpp>
 #include <autoware/component_interface_utils/rclcpp/interface.hpp>
 #include <autoware/component_interface_utils/rclcpp/service_client.hpp>
 #include <autoware/component_interface_utils/rclcpp/service_server.hpp>
@@ -24,6 +26,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -139,11 +142,48 @@ public:
     return create_publisher_impl<SpecT>(interface_);
   }
 
+  /// Create a publisher with an explicit QoS override, validated against the
+  /// spec's pivot before the publisher is constructed: a provider must offer
+  /// at least the pivot, so a weaker override is rejected before anything is
+  /// created or registered. Depth is not a compatibility axis and is free.
+  template <class SpecT>
+  typename Publisher<SpecT>::SharedPtr create_publisher(const rclcpp::QoS & offered)
+  {
+    namespace specs = autoware::component_interface_specs;
+    const auto & profile = offered.get_rmw_qos_profile();
+    if (!specs::provider_satisfies_pivot(
+          specs::QosPair{profile.reliability, profile.durability}, specs::pivot_of<SpecT>())) {
+      throw QosContractViolation(
+        std::string(SpecT::name) + ": the offered QoS is weaker than the spec pivot");
+    }
+    return create_publisher_impl<SpecT>(interface_, offered);
+  }
+
   /// Create a subscription and register it in this node's interface manifest.
   template <class SpecT, class CallbackT>
   typename Subscription<SpecT>::SharedPtr create_subscription(CallbackT && callback)
   {
     return create_subscription_impl<SpecT>(interface_, std::forward<CallbackT>(callback));
+  }
+
+  /// Create a subscription with an explicit QoS override, validated against
+  /// the spec's pivot before the subscription is constructed: a consumer must
+  /// request at most the pivot, so a stronger override is rejected before
+  /// anything is created or registered. Depth is not a compatibility axis and
+  /// is free.
+  template <class SpecT, class CallbackT>
+  typename Subscription<SpecT>::SharedPtr create_subscription(
+    CallbackT && callback, const rclcpp::QoS & requested)
+  {
+    namespace specs = autoware::component_interface_specs;
+    const auto & profile = requested.get_rmw_qos_profile();
+    if (!specs::consumer_satisfies_pivot(
+          specs::QosPair{profile.reliability, profile.durability}, specs::pivot_of<SpecT>())) {
+      throw QosContractViolation(
+        std::string(SpecT::name) + ": the requested QoS is stronger than the spec pivot");
+    }
+    return create_subscription_impl<SpecT>(
+      interface_, std::forward<CallbackT>(callback), requested);
   }
 
   /// Create a service server and register it in this node's interface manifest.
