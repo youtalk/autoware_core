@@ -112,7 +112,7 @@ A **v2** entry may look like this instead — no version fields, a `qos` block:
 
 Two more entry points in `manifest_json.hpp` round out parsing:
 
-- `manifests_from_json(doc)` parses a **document set**: an object root yields one manifest (equivalent to `from_json()`); an array root yields one manifest per element. This is a library-level convenience for callers that already have a single combined document; `manifest_admit` itself does not use it (see the fragment-discovery note below).
+- `manifests_from_json(doc)` parses a **document set**: an object root yields one manifest (equivalent to `from_json()`); an array root yields one manifest per element. `manifest_admit` parses every positional file with this function (see the fragment-discovery note below), so a fragment file may hold either shape.
 - `spec_pivots_from_json(doc)` parses `autoware_component_interface_specs`' `interface_manifest.json` into the `interface_name -> QosRecord` map `evaluate_deploy()` takes as its pivot table. It **requires** the top-level marker `"qos_semantics": "pivot"` and throws otherwise — this package must never silently treat an unrelated or future-schema document as a pivot manifest.
 
 ## Deploy-time gate: OCI label contract
@@ -132,7 +132,7 @@ ros2 run autoware_component_interface_admission manifest_admit \
 
 ### Fragment discovery
 
-Each component package that registers interfaces through `autoware_component_interface_utils` installs its own manifest fragment at the fixed relative path `share/<package_name>/interface_manifest_fragment.json`. `manifest_admit` takes one manifest per file (matching this one-fragment-per-package layout) as its positional arguments, so an operator or CI script assembles the deploy-time file list by discovering these installed fragments directly (e.g. globbing every package's `share` directory for that filename) rather than by pre-combining them into a single document. `manifests_from_json()`'s array-root support (see above) is for other, already-combined-document callers; it plays no part in how `manifest_admit` is invoked.
+Each component package that registers interfaces through `autoware_component_interface_utils` installs its own manifest fragment at the fixed relative path `share/<package_name>/interface_manifest_fragment.json`. That fragment file holds either one manifest document (a single-node package) or a JSON array of them (a multi-node package) — see `autoware_component_interface_utils`' README for the source-side convention. `manifest_admit` takes one fragment file per package (matching this one-fragment-per-package layout) as its positional arguments and parses each with `manifests_from_json()`, so both shapes are accepted uniformly: an operator or CI script assembles the deploy-time file list by discovering these installed fragments directly (e.g. globbing every package's `share` directory for that filename) rather than by pre-combining them into a single document.
 
 ### `manifest_admit` exit-code contract
 
@@ -151,6 +151,8 @@ Each component package that registers interfaces through `autoware_component_int
 The deploy trigger is stage 1 only, so `TOPIC_MISMATCH` is never an exit-`1` cause here — it is a runtime-only verdict (see below).
 
 For every `ACCEPTED` pairing where the no-pivot QoS fallback could not run because the matched provider or required entry (or both) has no `qos`, `manifest_admit` writes a non-fatal `warning: ...; QoS compatibility was not evaluated for this pairing` line to stderr. That row is still `ACCEPTED`, but this does not by itself guarantee an overall exit `0`: a pivot-registered endpoint elsewhere in the same deploy set can still independently reject with `QOS_PIVOT_PROVIDER` / `QOS_PIVOT_CONSUMER`.
+
+When `--spec-manifest` is omitted entirely, `manifest_admit` writes a `warning: ...; QoS pivot verdicts (QOS_PIVOT_PROVIDER / QOS_PIVOT_CONSUMER) are disabled for this run` line to stderr, since without a registered pivot table the per-endpoint pivot check cannot run for any interface — a deploy with a real per-endpoint QoS violation can then exit `0`. That must never be a silent no-op for a safety-adjacent gate, which is also why `docker/tools/test/admit-tool-entrypoint.sh` echoes its own warning when it finds no spec manifest to pass.
 
 A non-zero exit blocks the deploy / OTA assembly before `docker compose up`. The gate assumes **cooperative (honest) manifests**; tamper resistance (signing / attestation) is out of scope.
 

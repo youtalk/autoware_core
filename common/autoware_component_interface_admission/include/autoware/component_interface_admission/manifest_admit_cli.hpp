@@ -32,9 +32,15 @@ namespace autoware::component_interface_admission
 // `<manifest.json>` positionals. `--spec-manifest`'s file is the spec pivot manifest
 // (autoware_component_interface_specs' interface_manifest.json), parsed with
 // spec_pivots_from_json() and threaded into evaluate_deploy() so QoS pivot verdicts
-// (QOS_PIVOT_PROVIDER / QOS_PIVOT_CONSUMER) are reported. Without it, an interface with no
-// registered pivot falls back to evaluate_deploy()'s direct offered-vs-requested
-// QOS_PAIR_INCOMPATIBLE check.
+// (QOS_PIVOT_PROVIDER / QOS_PIVOT_CONSUMER) are reported. Without it, a "warning: ..." line is
+// written to `err` (the pivot check is silently disabled otherwise, which would be unsafe), and an
+// interface with no registered pivot falls back to evaluate_deploy()'s direct
+// offered-vs-requested QOS_PAIR_INCOMPATIBLE check.
+//
+// Each positional file is parsed with manifests_from_json(): its root may be a single manifest
+// document (an object) or a fragment for a multi-node package (an array, one manifest per node);
+// either shape is spliced into the same manifest set. A malformed element inside an array fails
+// closed exactly like a malformed single-document file.
 //
 // For every ACCEPTED pairing where the provider or the required entry does not carry `qos` at all,
 // a "warning: ..." line naming the pairing is written to `err` — the QoS gate could not evaluate

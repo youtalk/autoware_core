@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <exception>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <ostream>
 #include <sstream>
@@ -89,6 +90,12 @@ int run_manifest_admit(
           << e.what() << "\n";
       return 2;
     }
+  } else {
+    // The per-endpoint QoS pivot check (QOS_PIVOT_PROVIDER / QOS_PIVOT_CONSUMER) never runs
+    // without a registered pivot table, so a deploy with real per-endpoint QoS violations can
+    // exit 0 here. That must never be a silent no-op for a safety-adjacent gate.
+    err << "warning: manifest_admit: no --spec-manifest supplied; QoS pivot verdicts "
+           "(QOS_PIVOT_PROVIDER / QOS_PIVOT_CONSUMER) are disabled for this run\n";
   }
 
   std::vector<InterfaceManifest> manifests;
@@ -99,7 +106,15 @@ int run_manifest_admit(
       return 2;
     }
     try {
-      manifests.push_back(from_json(doc));
+      // Each positional file may hold either a single manifest document (an object root) or a
+      // fragment for a multi-node package (an array root, one manifest per node) -- see the
+      // package README's fragment-discovery note. manifests_from_json() throws on anything else,
+      // and on a malformed element inside an array, so a bad fragment still fails closed here
+      // exactly as a bad single-document one always has.
+      auto parsed = manifests_from_json(doc);
+      manifests.insert(
+        manifests.end(), std::make_move_iterator(parsed.begin()),
+        std::make_move_iterator(parsed.end()));
     } catch (const std::exception & e) {
       err << "manifest_admit: failed to parse " << path << ": " << e.what() << "\n";
       return 2;

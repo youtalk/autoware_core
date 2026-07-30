@@ -232,6 +232,62 @@ TEST(ManifestAdmitCli, malformed_spec_manifest_exits_2)
   EXPECT_FALSE(err.str().empty());
 }
 
+TEST(ManifestAdmitCli, array_root_manifest_file_admits_all_its_nodes)
+{
+  // A single positional file whose root is a JSON array is the on-disk shape of a multi-node
+  // package's fragment (see the README's fragment-discovery note): one manifest per array element,
+  // spliced together exactly as if each had been its own positional file.
+  const std::string array_path = write_temp_file(
+    "cli_array_root.json", "[" + provider_json(2, 1) + "," + consumer_json(2) + "]");
+
+  std::ostringstream out;
+  std::ostringstream err;
+  const int code = adm::run_manifest_admit({array_path}, out, err);
+  EXPECT_EQ(code, 0);
+  EXPECT_NE(out.str().find("/consumer <- /provider"), std::string::npos);
+}
+
+TEST(ManifestAdmitCli, malformed_element_inside_array_root_manifest_exits_2)
+{
+  // The single element in this array is missing the required 'interface_name' key. A bad element
+  // inside an array-root fragment must fail closed exactly like a bad single-document file.
+  const std::string array_path = write_temp_file(
+    "cli_array_root_malformed.json",
+    R"([{"node_name":"/n1","provided":[{"major":1,"minor":0,"patch":0}]}])");
+
+  std::ostringstream out;
+  std::ostringstream err;
+  const int code = adm::run_manifest_admit({array_path}, out, err);
+  EXPECT_EQ(code, 2);
+  EXPECT_FALSE(err.str().empty());
+}
+
+TEST(ManifestAdmitCli, non_object_non_array_root_manifest_exits_2)
+{
+  const std::string scalar_path = write_temp_file("cli_scalar_root.json", "42");
+
+  std::ostringstream out;
+  std::ostringstream err;
+  const int code = adm::run_manifest_admit({scalar_path}, out, err);
+  EXPECT_EQ(code, 2);
+  EXPECT_FALSE(err.str().empty());
+}
+
+TEST(ManifestAdmitCli, no_spec_manifest_emits_a_pivot_disabled_warning)
+{
+  // Without --spec-manifest, the per-endpoint QoS pivot check cannot run for any interface. That
+  // must never be a silent no-op, so manifest_admit itself warns on stderr even though the
+  // version-only verdict here still accepts (and exits 0).
+  const std::string prov_path = write_temp_file("cli_provider_no_spec.json", provider_json(2, 1));
+  const std::string cons_path = write_temp_file("cli_consumer_no_spec.json", consumer_json(2));
+
+  std::ostringstream out;
+  std::ostringstream err;
+  const int code = adm::run_manifest_admit({prov_path, cons_path}, out, err);
+  EXPECT_EQ(code, 0);
+  EXPECT_NE(err.str().find("no --spec-manifest"), std::string::npos);
+}
+
 TEST(ManifestAdmit, accepts_compatible_image_set)
 {
   const auto results = adm::evaluate_deploy(parse_all({provider_json(2, 1), consumer_json(2)}));
