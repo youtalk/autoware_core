@@ -249,12 +249,14 @@ inline void collect_pivot_endpoint_verdicts(
 // ones (has_version == false) -- see the has_version handling below.
 //
 // has_version == false, on either side, means "makes no version claim" and must never enter a
-// version verdict (I1 / the ported package's stated contract): a required entry with no version at
-// all is resolved by interface_name alone, ignoring every provider's has_version and version fields
-// entirely, and always ACCEPTED once any provider is found (there is nothing left to check). A
-// required entry that DOES declare a version treats an unversioned provider as invisible for this
-// purpose -- it is excluded from both the "accepted" and the "blamed" candidate pools, exactly like
-// it does not exist, rather than being silently compared against its all-zero default version.
+// version verdict: a required entry with no version at all is resolved by interface_name alone,
+// ignoring every provider's has_version and version fields entirely, since there are no bounds left
+// to check. But TOPIC_MISMATCH is a wiring verdict, not a version one, so it is NOT suppressed by
+// has_version == false: an unversioned required entry still gets the wired / disjoint-remap
+// distinction above, it just never reaches MAJOR_MISMATCH / MINOR_MISMATCH. A required entry that
+// DOES declare a version treats an unversioned provider as invisible for version purposes -- it is
+// excluded from both the "accepted" and the "blamed" candidate pools, exactly like it does not
+// exist, rather than being silently compared against its all-zero default version.
 inline std::vector<AdmissionResult> evaluate(const std::vector<InterfaceManifest> & manifests)
 {
   struct ProviderEntry
@@ -278,20 +280,36 @@ inline std::vector<AdmissionResult> evaluate(const std::vector<InterfaceManifest
       }
 
       if (!r.has_version) {
-        // No version claim: resolve any provider by interface_name alone, ignoring its own
-        // has_version and resolved_name, for consistency with evaluate_deploy()'s treatment of the
-        // same v2 document. Version bounds simply do not apply, so there is nothing left to reject.
-        const ProviderEntry * matched = &it->second.front();
+        // No version claim: version bounds do not apply, so every provider of the interface_name is
+        // a candidate regardless of its own has_version. But wiring still matters at the runtime
+        // trigger -- reuse the same wired / disjoint-remap distinction as the versioned path below,
+        // just without a version gate, so a remapped provider is still caught as TOPIC_MISMATCH
+        // rather than silently accepted.
+        const ProviderEntry * wired = nullptr;
+        const ProviderEntry * other = nullptr;
         for (const auto & entry : it->second) {
-          if (entry.node < matched->node) {
-            matched = &entry;
+          if (entry.p.resolved_name == r.resolved_name) {
+            wired = &entry;
+            break;
+          }
+          // Lowest node name wins, so the reported provider does not depend on manifest order.
+          if (other == nullptr || entry.node < other->node) {
+            other = &entry;
           }
         }
         AdmissionResult res;
         res.consumer_node = m.node_name;
         res.interface_name = r.interface_name;
-        res.provider_node = matched->node;
-        res.code = ACCEPTED;
+        if (wired != nullptr) {
+          res.code = ACCEPTED;
+          res.provider_node = wired->node;
+        } else {
+          // No provider is wired to this consumer's resolved topic: the remap false-accept that an
+          // interface_name-only match would have missed. `other` is non-null here because
+          // it->second is non-empty (checked above) and every entry that isn't `wired` updates it.
+          res.code = TOPIC_MISMATCH;
+          res.provider_node = other->node;
+        }
         results.push_back(res);
         continue;
       }
@@ -378,17 +396,19 @@ inline std::vector<AdmissionResult> evaluate(const std::vector<InterfaceManifest
 // (QOS_PAIR_INCOMPATIBLE). See both functions' comments.
 //
 // has_version == false, on either side, means "makes no version claim" and must never enter a
-// version verdict (I1). A required entry with no version at all never produces MAJOR_MISMATCH /
+// version verdict. A required entry with no version at all never produces MAJOR_MISMATCH /
 // MINOR_MISMATCH: a provider is still resolved by interface_name alone, ignoring every candidate's
 // own has_version, purely so the no-pivot QoS fallback above has a pairing to check (lowest node
-// name wins, for determinism). A required entry that DOES declare a version excludes unversioned
+// name wins, for determinism) -- two sides both declining a version claim is a coherent unversioned
+// pairing, not a gap to reject. A required entry that DOES declare a version excludes unversioned
 // providers from candidacy entirely -- they are invisible for version-verdict purposes, neither
 // accepted nor blamed, rather than being silently compared against their all-zero default version.
 // NO_PROVIDER, by contrast, is a completeness verdict, not a version verdict: because the deploy
-// image set is complete, it fires whenever no version-checkable provider exists for a required
-// entry ANYWHERE in the set, whether that entry declares a version or not, and whether the reason
-// is that literally no provider of the interface_name exists or that every provider of it is itself
-// unversioned. This mirrors the pre-v2 behavior, where every required entry got this check.
+// image set is complete, it fires whenever a required entry -- versioned or not -- has no provider
+// of its interface_name anywhere in the set at all. For a required entry that DOES declare a
+// version, it additionally fires when every provider that does exist is itself unversioned, since
+// none of them is then version-checkable. This mirrors the pre-v2 behavior, where every required
+// entry got the no-provider-at-all check.
 inline std::vector<AdmissionResult> evaluate_deploy(
   const std::vector<InterfaceManifest> & manifests,
   const std::map<std::string, QosRecord> & spec_pivots)
@@ -412,7 +432,8 @@ inline std::vector<AdmissionResult> evaluate_deploy(
 
       if (!r.has_version) {
         if (it == providers.end() || it->second.empty()) {
-          // Completeness verdict: NO_PROVIDER fires regardless of has_version (I3).
+          // Completeness verdict: no provider of this interface_name exists anywhere in the deploy
+          // set, so NO_PROVIDER fires regardless of whether this required entry declares a version.
           AdmissionResult res;
           res.consumer_node = m.node_name;
           res.interface_name = r.interface_name;
@@ -441,7 +462,7 @@ inline std::vector<AdmissionResult> evaluate_deploy(
       res.interface_name = r.interface_name;
 
       // Only version-checkable providers (has_version == true) are candidates; an unversioned
-      // provider makes no version claim and must never enter a version verdict (I1).
+      // provider makes no version claim and must never enter a version verdict.
       std::vector<const ProviderEntry *> candidates;
       if (it != providers.end()) {
         for (const auto & entry : it->second) {

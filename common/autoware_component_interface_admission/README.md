@@ -32,7 +32,9 @@ The one place the two triggers differ is a required interface with no provider:
 - **Runtime** (`evaluate()`): such a required interface is **skipped** — under the runtime trigger a provider may simply not have started yet, so absence is not yet a failure.
 - **Deploy-time** (`evaluate_deploy()`): the image set is complete, so a required interface with no provider anywhere in the set is a hard `NO_PROVIDER` rejection.
 
-`NO_PROVIDER` is a **completeness** verdict, not a version verdict: it fires whenever no version-checkable provider exists anywhere in the set for a required entry — whether because literally no provider of the `interface_name` exists, or every provider of it is itself unversioned (`has_version == false`) — regardless of whether the required entry itself declares a version. A required entry with `has_version == false` still gets this check, matching the pre-v2 behavior where every required entry did.
+`NO_PROVIDER` is a **completeness** verdict, not a version verdict: it fires whenever a required entry — versioned or not — has no provider of its `interface_name` anywhere in the set at all, matching the pre-v2 behavior where every required entry got this check. For a required entry that DOES declare a version, it additionally fires when every provider that exists is itself unversioned (`has_version == false`), since none of them is then version-checkable; an unversioned required entry has no version bounds to check in the first place, so it is satisfied by any provider regardless of that provider's own `has_version` — two sides both declining a version claim is a coherent unversioned pairing, not a gap to reject.
+
+A required entry declared without a version at all (`has_version == false`) never produces `MAJOR_MISMATCH` / `MINOR_MISMATCH` at either trigger, since version bounds simply do not apply. But `TOPIC_MISMATCH` is a wiring verdict, not a version one, so `has_version` does not suppress it: at the runtime trigger, an unversioned required entry is still checked against stage 2 exactly like a versioned one — a remap that leaves it on a disjoint wire topic is still caught, rather than silently accepted because no version comparison was in play.
 
 The deploy-time gate matches on **version + `interface_name` only** (stage 1). The remap-resolved `resolved_name` match (stage 2 of the rule) is runtime-only, because remaps live in the launch / compose layer and are not visible in image metadata — so `evaluate_deploy()` never inspects `resolved_name` and never emits `TOPIC_MISMATCH`. That residual remap false-accept is exactly what the runtime trigger backstops.
 
@@ -53,7 +55,7 @@ Whether that pivot is checked **per endpoint** or **per pairing** depends on whe
 
 A provider-side and a consumer-side pivot violation for the same interface are reported as two separate rows (`AdmissionResult` leaves the other side's node field empty for these two codes), never merged into one.
 
-`depth` is endpoint-local and **presentational only**: it never participates in a verdict, on any of the three paths above. A required entry declared without a version at all (`has_version == false` in a v2 document) never produces a version verdict, but a provider is still resolved for it by `interface_name` alone (if one exists) so the no-pivot QoS fallback has a pairing to check; if none exists, it is `NO_PROVIDER` like any other required entry (see above). `reliability_rank()` / `durability_rank()` in `admission_rule.hpp` restate, on this package's JSON string encoding, the exact same strength ranks `autoware_component_interface_specs`' `qos_compatibility.hpp` expresses over RMW enums — this package is a no-dependency leaf and cannot include that header, so the two are deliberately duplicated and cross-referenced; change one and the other must follow. An out-of-vocabulary policy string ranks as incomparable (fail closed): every comparison against it fails.
+`depth` is endpoint-local and **presentational only**: it never participates in a verdict, on any of the three paths above. A required entry declared without a version at all (`has_version == false` in a v2 document) never produces a version verdict, but a provider is still resolved for it by `interface_name` alone (if one exists) so the no-pivot QoS fallback has a pairing to check; if none exists, it is `NO_PROVIDER` like any other required entry (see above). `reliability_rank()` / `durability_rank()` in `admission_rule.hpp` restate, on this package's JSON string encoding, the exact same strength ranks `autoware_component_interface_specs`' `qos_compatibility.hpp` expresses over RMW enums — this package depends on no other Autoware package and cannot include that header, so the two are deliberately duplicated and cross-referenced; change one and the other must follow. An out-of-vocabulary policy string ranks as incomparable (fail closed): every comparison against it fails.
 
 ## Records and JSON schema
 
@@ -140,15 +142,15 @@ Each component package that registers interfaces through `autoware_component_int
 /consumer <- /provider [/perception/object_recognition/objects]: MAJOR mismatch (code=1)
 ```
 
-| Exit code | Meaning                                                                                                                        |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `0`       | every pairing `ACCEPTED` (a pairing missing `qos` on one or both sides still counts as `ACCEPTED`, with a warning — see below) |
-| `1`       | at least one rejection (`MAJOR` / `MINOR` mismatch, `NO_PROVIDER`, or a `QOS_*` verdict)                                       |
-| `2`       | operational / parse error (bad usage, unreadable file, malformed manifest or spec manifest)                                    |
+| Exit code | Meaning                                                                                                                                                                                             |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`       | every row `ACCEPTED` — including a pairing missing `qos` on one or both sides, which counts as `ACCEPTED` with a warning (see below), and including the absence of any per-endpoint pivot violation |
+| `1`       | at least one rejection (`MAJOR` / `MINOR` mismatch, `NO_PROVIDER`, or a `QOS_*` verdict)                                                                                                            |
+| `2`       | operational / parse error (bad usage, unreadable file, malformed manifest or spec manifest)                                                                                                         |
 
 The deploy trigger is stage 1 only, so `TOPIC_MISMATCH` is never an exit-`1` cause here — it is a runtime-only verdict (see below).
 
-For every `ACCEPTED` pairing where the QoS gate could not run because the matched provider or required entry (or both) has no `qos`, `manifest_admit` writes a non-fatal `warning: ...; QoS compatibility was not evaluated for this pairing` line to stderr — the pairing still exits `0`, but the gap is visible in the log.
+For every `ACCEPTED` pairing where the no-pivot QoS fallback could not run because the matched provider or required entry (or both) has no `qos`, `manifest_admit` writes a non-fatal `warning: ...; QoS compatibility was not evaluated for this pairing` line to stderr. That row is still `ACCEPTED`, but this does not by itself guarantee an overall exit `0`: a pivot-registered endpoint elsewhere in the same deploy set can still independently reject with `QOS_PIVOT_PROVIDER` / `QOS_PIVOT_CONSUMER`.
 
 A non-zero exit blocks the deploy / OTA assembly before `docker compose up`. The gate assumes **cooperative (honest) manifests**; tamper resistance (signing / attestation) is out of scope.
 

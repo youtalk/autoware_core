@@ -58,8 +58,9 @@ struct ProvidedInterface
   // unversioned, in which case this is false and major/minor/patch stay at their 0 default; version
   // verdicts (MAJOR_MISMATCH / MINOR_MISMATCH) must skip such an entry rather than comparing it
   // against its all-zero default. NO_PROVIDER is NOT a version verdict -- it is a completeness
-  // verdict (the deploy image set is complete, so "no version-checkable provider exists anywhere"
-  // is knowable up front) and fires regardless of has_version; see admission_rule.hpp.
+  // verdict that fires when a required entry has no provider of its interface_name anywhere in the
+  // deploy set at all, regardless of whether that required entry itself declares a version; see
+  // admission_rule.hpp.
   bool has_version = true;
   // Whether `qos` below was present in the source manifest. Absent in every v1 document and in a
   // v2 document for an endpoint that does not carry QoS in its manifest.

@@ -639,6 +639,65 @@ TEST(
   EXPECT_EQ(verdicts[0].code, adm::ACCEPTED);
 }
 
+TEST(admission_rule, runtime_evaluate_unversioned_required_entry_still_catches_a_remap_false_accept)
+{
+  // has_version == false suppresses a VERSION verdict, but TOPIC_MISMATCH is a wiring verdict, not
+  // a version one -- it must still fire when the only provider's wire topic is disjoint from the
+  // one this consumer is actually wired to, exactly as it would for a versioned required entry.
+  adm::InterfaceManifest prov_m;
+  prov_m.node_name = "/n1";
+  adm::ProvidedInterface p;
+  p.interface_name = "/t";
+  p.resolved_name = "/t/remapped_elsewhere";
+  prov_m.provided.push_back(p);
+
+  adm::InterfaceManifest cons_m;
+  cons_m.node_name = "/n2";
+  adm::RequiredInterface r;
+  r.interface_name = "/t";
+  r.resolved_name = "/t";
+  r.has_version = false;
+  cons_m.required.push_back(r);
+
+  const auto verdicts = adm::evaluate({prov_m, cons_m});
+  ASSERT_EQ(verdicts.size(), 1u);
+  EXPECT_EQ(verdicts[0].code, adm::TOPIC_MISMATCH);
+  EXPECT_EQ(verdicts[0].provider_node, "/n1");
+}
+
+TEST(admission_rule, runtime_evaluate_unversioned_required_entry_names_the_correctly_wired_provider)
+{
+  // Two providers of the same interface: /a_wrong is remapped away, /z_wired is the one actually
+  // wired to this consumer. Node-name ordering must not decide the verdict -- the wired provider
+  // must be the one named ACCEPTED even though it does not sort first alphabetically.
+  adm::InterfaceManifest wrong_m;
+  wrong_m.node_name = "/a_wrong";
+  adm::ProvidedInterface wrong_p;
+  wrong_p.interface_name = "/t";
+  wrong_p.resolved_name = "/t/remapped_elsewhere";
+  wrong_m.provided.push_back(wrong_p);
+
+  adm::InterfaceManifest wired_m;
+  wired_m.node_name = "/z_wired";
+  adm::ProvidedInterface wired_p;
+  wired_p.interface_name = "/t";
+  wired_p.resolved_name = "/t";
+  wired_m.provided.push_back(wired_p);
+
+  adm::InterfaceManifest cons_m;
+  cons_m.node_name = "/n2";
+  adm::RequiredInterface r;
+  r.interface_name = "/t";
+  r.resolved_name = "/t";
+  r.has_version = false;
+  cons_m.required.push_back(r);
+
+  const auto verdicts = adm::evaluate({wrong_m, wired_m, cons_m});
+  ASSERT_EQ(verdicts.size(), 1u);
+  EXPECT_EQ(verdicts[0].code, adm::ACCEPTED);
+  EXPECT_EQ(verdicts[0].provider_node, "/z_wired");
+}
+
 // --- Fail-closed rank behavior (already correct; this is coverage only) ---
 
 TEST(admission_rule, reliability_rank_is_fail_closed_for_an_out_of_vocabulary_string)
