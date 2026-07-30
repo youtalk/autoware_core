@@ -250,6 +250,19 @@
     },
     {
       "domain": "vehicle",
+      "interface": "/vehicle/status/velocity_status",
+      "type": "autoware_vehicle_msgs/msg/VelocityReport",
+      "kind": "topic",
+      "version": "0.1.0",
+      "qos": {
+        "history": "keep_last",
+        "depth": 1,
+        "reliability": "reliable",
+        "durability": "volatile"
+      }
+    },
+    {
+      "domain": "vehicle",
       "interface": "/vehicle/status/steering_status",
       "type": "autoware_vehicle_msgs/msg/SteeringReport",
       "kind": "topic",
@@ -291,6 +304,19 @@
       "domain": "vehicle",
       "interface": "/vehicle/status/hazard_lights_status",
       "type": "autoware_vehicle_msgs/msg/HazardLightsReport",
+      "kind": "topic",
+      "version": "0.1.0",
+      "qos": {
+        "history": "keep_last",
+        "depth": 1,
+        "reliability": "reliable",
+        "durability": "volatile"
+      }
+    },
+    {
+      "domain": "vehicle",
+      "interface": "/vehicle/status/control_mode",
+      "type": "autoware_vehicle_msgs/msg/ControlModeReport",
       "kind": "topic",
       "version": "0.1.0",
       "qos": {
