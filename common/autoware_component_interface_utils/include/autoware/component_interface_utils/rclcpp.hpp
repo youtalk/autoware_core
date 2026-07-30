@@ -128,7 +128,8 @@ public:
     MessagePtrCallback<SharedPtrT, InstanceT> && callback) const
   {
     using std::placeholders::_1;
-    init_sub(sub, std::bind(callback, instance, _1));
+    using SpecT = typename SharedPtrT::element_type::SpecType;
+    sub = create_subscription_impl<SpecT>(interface_, std::bind(callback, instance, _1));
   }
 
   /// Create a subscription wrapper for reference callback.
@@ -138,7 +139,8 @@ public:
     MessageRefCallback<SharedPtrT, InstanceT> && callback) const
   {
     using std::placeholders::_1;
-    init_sub(sub, std::bind(callback, instance, _1));
+    using SpecT = typename SharedPtrT::element_type::SpecType;
+    sub = create_subscription_impl<SpecT>(interface_, std::bind(callback, instance, _1));
   }
 
   /// Create a service wrapper for logging.
@@ -149,7 +151,8 @@ public:
   {
     using std::placeholders::_1;
     using std::placeholders::_2;
-    init_srv(srv, std::bind(callback, instance, _1, _2), group);
+    using SpecT = typename SharedPtrT::element_type::SpecType;
+    srv = create_service_impl<SpecT>(interface_, std::bind(callback, instance, _1, _2), group);
   }
 
   /// Create a publisher and register it in this node's interface manifest.
