@@ -104,13 +104,18 @@ public:
 
   /// Relay service. Goes through the impls directly rather than init_cli/init_srv
   /// so that this helper neither triggers a deprecation warning nor bypasses
-  /// interface registration.
+  /// interface registration. The client is deliberately left out of `group`:
+  /// only the service goes into the caller's (typically MutuallyExclusive)
+  /// callback group, so the client's response can still be taken while the
+  /// service callback that issued the call is blocked in Client::call.
+  /// Putting both in the same group reintroduces the deadlock `group` exists
+  /// to prevent.
   template <class C, class S>
   void relay_service(
     C & cli, S & srv, CallbackGroup group, std::optional<double> timeout = std::nullopt) const
   {
     using SpecT = typename C::element_type::SpecType;
-    cli = create_client_impl<SpecT>(interface_, group);
+    cli = create_client_impl<SpecT>(interface_);
     using SrvSpecT = typename S::element_type::SpecType;
     srv = create_service_impl<SrvSpecT>(
       interface_, [cli, timeout](auto req, auto res) { *res = *cli->call(req, timeout); }, group);
