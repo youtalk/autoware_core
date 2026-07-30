@@ -48,6 +48,7 @@ if(BUILD_TESTING)
       test/test_concepts.cpp
       test/test_manifest.cpp
       test/test_service_qos.cpp
+      test/test_qos_compatibility.cpp
     )
     # test_concepts.cpp exercises the C++20 concepts header.
     target_compile_features(gtest_${PROJECT_NAME} PRIVATE cxx_std_20)
