@@ -24,6 +24,7 @@
 #include "autoware/component_interface_specs/map.hpp"
 #include "autoware/component_interface_specs/perception.hpp"
 #include "autoware/component_interface_specs/planning.hpp"
+#include "autoware/component_interface_specs/qos_compatibility.hpp"
 #include "autoware/component_interface_specs/system.hpp"
 #include "autoware/component_interface_specs/utils.hpp"
 #include "autoware/component_interface_specs/vehicle.hpp"
