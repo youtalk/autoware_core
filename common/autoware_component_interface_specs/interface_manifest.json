@@ -1,5 +1,6 @@
 {
   "owner": "autowarefoundation",
+  "qos_semantics": "pivot",
   "interfaces": [
     {
       "domain": "control",

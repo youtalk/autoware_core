@@ -163,6 +163,7 @@ int main(int argc, char ** argv)
   try {
     os << "{\n";
     os << "  \"owner\": \"" << cis::owner << "\",\n";
+    os << "  \"qos_semantics\": \"pivot\",\n";
     os << "  \"interfaces\": [\n";
     for (std::size_t i = 0; i < entries.size(); ++i) {
       const auto & e = entries[i];

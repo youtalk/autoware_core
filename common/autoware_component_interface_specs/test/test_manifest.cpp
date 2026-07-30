@@ -52,6 +52,9 @@ TEST(manifest, generates_known_boundaries)
   EXPECT_NE(json.find("nav_msgs/msg/Odometry"), std::string::npos);
   EXPECT_NE(json.find("/planning/set_lanelet_route"), std::string::npos);
   EXPECT_NE(json.find("\"version\": \"0.1.0\""), std::string::npos);
+  // The declared QoS is a compatibility pivot, not an exact-match requirement;
+  // external tools distinguish the semantics revision by this marker.
+  EXPECT_NE(json.find("\"qos_semantics\": \"pivot\""), std::string::npos);
 }
 
 // QoS is half of a topic's contract: a RELIABLE subscription never hears a BEST_EFFORT
