@@ -86,22 +86,31 @@ public:
     sub = create_subscription_impl<SpecT>(interface_, std::forward<CallbackT>(callback));
   }
 
-  /// Relay message.
+  /// Relay message. Goes through the impls directly rather than init_pub/init_sub
+  /// so that this helper neither triggers a deprecation warning nor bypasses
+  /// interface registration.
   template <class P, class S>
   void relay_message(P & pub, S & sub) const
   {
-    using MsgT = typename P::element_type::SpecType::Message::ConstSharedPtr;
-    init_pub(pub);
-    init_sub(sub, [pub](MsgT msg) { pub->publish(*msg); });
+    using SpecT = typename P::element_type::SpecType;
+    using MsgT = typename SpecT::Message::ConstSharedPtr;
+    pub = create_publisher_impl<SpecT>(interface_);
+    using SubSpecT = typename S::element_type::SpecType;
+    sub = create_subscription_impl<SubSpecT>(interface_, [pub](MsgT msg) { pub->publish(*msg); });
   }
 
-  /// Relay service.
+  /// Relay service. Goes through the impls directly rather than init_cli/init_srv
+  /// so that this helper neither triggers a deprecation warning nor bypasses
+  /// interface registration.
   template <class C, class S>
   void relay_service(
     C & cli, S & srv, CallbackGroup group, std::optional<double> timeout = std::nullopt) const
   {
-    init_cli(cli);
-    init_srv(srv, [cli, timeout](auto req, auto res) { *res = *cli->call(req, timeout); }, group);
+    using SpecT = typename C::element_type::SpecType;
+    cli = create_client_impl<SpecT>(interface_, group);
+    using SrvSpecT = typename S::element_type::SpecType;
+    srv = create_service_impl<SrvSpecT>(
+      interface_, [cli, timeout](auto req, auto res) { *res = *cli->call(req, timeout); }, group);
   }
 
   /// Create a subscription wrapper for pointer callback.
