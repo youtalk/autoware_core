@@ -145,7 +145,9 @@ public:
   /// Create a publisher with an explicit QoS override, validated against the
   /// spec's pivot before the publisher is constructed: a provider must offer
   /// at least the pivot, so a weaker override is rejected before anything is
-  /// created or registered. Depth is not a compatibility axis and is free.
+  /// created or registered. Depth is not a compatibility axis and is free. A
+  /// policy the pivot cannot rank against (e.g. SYSTEM_DEFAULT, BEST_AVAILABLE)
+  /// is rejected too: incomparable fails closed rather than passing silently.
   template <class SpecT>
   typename Publisher<SpecT>::SharedPtr create_publisher(const rclcpp::QoS & offered)
   {
@@ -170,7 +172,9 @@ public:
   /// the spec's pivot before the subscription is constructed: a consumer must
   /// request at most the pivot, so a stronger override is rejected before
   /// anything is created or registered. Depth is not a compatibility axis and
-  /// is free.
+  /// is free. A policy the pivot cannot rank against (e.g. SYSTEM_DEFAULT,
+  /// BEST_AVAILABLE) is rejected too: incomparable fails closed rather than
+  /// passing silently.
   template <class SpecT, class CallbackT>
   typename Subscription<SpecT>::SharedPtr create_subscription(
     CallbackT && callback, const rclcpp::QoS & requested)

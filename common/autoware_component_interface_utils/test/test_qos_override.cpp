@@ -15,8 +15,9 @@
 #include "autoware/component_interface_utils/rclcpp.hpp"
 #include "gtest/gtest.h"
 
-#include <autoware_adapi_v1_msgs/msg/response_status.hpp>
 #include <rclcpp/rclcpp.hpp>
+
+#include <autoware_adapi_v1_msgs/msg/response_status.hpp>
 
 #include <memory>
 
@@ -64,13 +65,25 @@ TEST_F(QosOverrideTest, weaker_offer_throws)
   EXPECT_THROW(
     adaptor_->create_publisher<test_specs::PivotRV>(rclcpp::QoS(1).best_effort()),
     ciu::QosContractViolation);
+  // Pins that validation precedes registration, not just creation: a
+  // refactor that moved the check after the publisher was constructed but
+  // before register_interface() would still throw here and still pass, but
+  // would leave a live publisher on the ROS graph.
+  EXPECT_TRUE(adaptor_->manifest().empty());
 }
 
 TEST_F(QosOverrideTest, weaker_request_is_accepted)
 {
   auto sub = adaptor_->create_subscription<test_specs::PivotRV>(
     [](const test_specs::PivotRV::Message &) {}, rclcpp::QoS(1).best_effort());
-  EXPECT_EQ(adaptor_->manifest().size(), 1u);
+  const auto manifest = adaptor_->manifest();
+  ASSERT_EQ(manifest.size(), 1u);
+  // Pins that the override actually reaches rclcpp::create_subscription: the
+  // pivot is RELIABLE and InterfaceRecord defaults reliability to
+  // SYSTEM_DEFAULT, so BEST_EFFORT can only appear here if the requested QoS
+  // -- not the spec's -- was applied and reflected back from the live
+  // subscription.
+  EXPECT_EQ(manifest[0].reliability, RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
   (void)sub;
 }
 
@@ -80,6 +93,19 @@ TEST_F(QosOverrideTest, stronger_request_throws)
     adaptor_->create_subscription<test_specs::PivotRV>(
       [](const test_specs::PivotRV::Message &) {}, rclcpp::QoS(1).reliable().transient_local()),
     ciu::QosContractViolation);
+  EXPECT_TRUE(adaptor_->manifest().empty());
+}
+
+TEST_F(QosOverrideTest, incomparable_offer_throws)
+{
+  // SystemDefaultsQoS carries RMW_QOS_POLICY_*_SYSTEM_DEFAULT on both axes,
+  // which ranks outside the two policies the pivot compares (fail closed):
+  // neither "at least" nor "at most" the pivot can be established, so the
+  // provider check must reject it rather than silently accept it.
+  EXPECT_THROW(
+    adaptor_->create_publisher<test_specs::PivotRV>(rclcpp::SystemDefaultsQoS()),
+    ciu::QosContractViolation);
+  EXPECT_TRUE(adaptor_->manifest().empty());
 }
 
 TEST_F(QosOverrideTest, depth_is_free)
