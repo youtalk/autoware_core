@@ -17,7 +17,9 @@
 
 #include <autoware/component_interface_utils/rclcpp/exceptions.hpp>
 #include <autoware/component_interface_utils/rclcpp/interface.hpp>
+#include <autoware/component_interface_utils/rclcpp/registration.hpp>
 #include <rclcpp/node.hpp>
+#include <rosidl_runtime_cpp/traits.hpp>
 
 #include <type_traits>
 #include <utility>
@@ -70,6 +72,11 @@ public:
     service_ = interface_->node->create_service<typename SpecT::Service>(
       SpecT::name, wrap(callback), rmw_qos_profile_services_default, group);
 #endif
+    interface_->register_interface(
+      make_record<SpecT>(
+        InterfaceRecord::Kind::Service, InterfaceRecord::Role::Provide,
+        service_->get_service_name(), rosidl_generator_traits::name<typename SpecT::Service>(),
+        rmw_qos_profile_services_default));
   }
 
   /// Create a service callback that converts exceptions into the response status.

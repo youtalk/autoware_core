@@ -72,7 +72,7 @@ public:
   void init_pub(SharedPtrT & pub) const
   {
     using SpecT = typename SharedPtrT::element_type::SpecType;
-    pub = create_publisher_impl<SpecT>(interface_->node);
+    pub = create_publisher_impl<SpecT>(interface_);
   }
 
   /// Create a subscription using traits like services.
@@ -80,7 +80,7 @@ public:
   void init_sub(SharedPtrT & sub, CallbackT && callback) const
   {
     using SpecT = typename SharedPtrT::element_type::SpecType;
-    sub = create_subscription_impl<SpecT>(interface_->node, std::forward<CallbackT>(callback));
+    sub = create_subscription_impl<SpecT>(interface_, std::forward<CallbackT>(callback));
   }
 
   /// Relay message.
@@ -132,21 +132,21 @@ public:
     init_srv(srv, std::bind(callback, instance, _1, _2), group);
   }
 
-  /// Create a publisher (returning form; Wave 1: non-registering).
+  /// Create a publisher and register it in this node's interface manifest.
   template <class SpecT>
   typename Publisher<SpecT>::SharedPtr create_publisher()
   {
-    return create_publisher_impl<SpecT>(interface_->node);
+    return create_publisher_impl<SpecT>(interface_);
   }
 
-  /// Create a subscription (returning form; Wave 1: non-registering).
+  /// Create a subscription and register it in this node's interface manifest.
   template <class SpecT, class CallbackT>
   typename Subscription<SpecT>::SharedPtr create_subscription(CallbackT && callback)
   {
-    return create_subscription_impl<SpecT>(interface_->node, std::forward<CallbackT>(callback));
+    return create_subscription_impl<SpecT>(interface_, std::forward<CallbackT>(callback));
   }
 
-  /// Create a service server (returning form; Wave 1: non-registering).
+  /// Create a service server and register it in this node's interface manifest.
   template <class SpecT, class CallbackT>
   typename Service<SpecT>::SharedPtr create_service(
     CallbackT && callback, rclcpp::CallbackGroup::SharedPtr group = nullptr)
@@ -154,7 +154,7 @@ public:
     return create_service_impl<SpecT>(interface_, std::forward<CallbackT>(callback), group);
   }
 
-  /// Create a service client (returning form; Wave 1: non-registering).
+  /// Create a service client and register it in this node's interface manifest.
   template <class SpecT>
   typename Client<SpecT>::SharedPtr create_client(rclcpp::CallbackGroup::SharedPtr group = nullptr)
   {
