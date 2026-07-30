@@ -120,9 +120,9 @@ Two more entry points in `manifest_json.hpp` round out parsing:
 Each component image carries its interface manifest as **pure image metadata**, so the gate reads it without creating or starting a container and without any source present in the image (a binary-only third-party image works):
 
 - **Primary**: the OCI image label `org.autoware.interface_manifest`, whose value is the JSON payload above. Read with `docker inspect` (or `skopeo inspect` / `crane config` against a registry, without pulling).
-- **Secondary**: the fixed path `/opt/autoware/manifest.json` inside the image.
+- **Fallback**: for an image with no such label, the `interface_manifest_fragment.json` file(s) installed under `/opt/autoware/share/<pkg>/` by every package that registers interfaces through `autoware_component_interface_utils` (see Fragment discovery, below). Reading this fallback still never boots the image: a container is created from it only so its filesystem can be read with `docker cp`, and it is removed again without ever being started.
 
-The operator / CI entry point (a `deploy_check.sh` shipped by the meta-repo, out of scope for this package) resolves the image set from the deploy config, extracts each image's label, writes each to a file, and invokes this package's CLI. `--spec-manifest` is optional; pass it to also register the QoS pivots described above, so every `provided` / `required` entry that carries `qos` is checked against its pivot (repeatable: the last occurrence wins):
+The operator / CI entry point (a `deploy_check.sh` shipped by the meta-repo, out of scope for this package) resolves the image set from the deploy config, extracts each image's manifest(s) (label primary, installed fragments as fallback), writes each to a file, and invokes this package's CLI. `--spec-manifest` is optional; pass it to also register the QoS pivots described above, so every `provided` / `required` entry that carries `qos` is checked against its pivot (repeatable: the last occurrence wins):
 
 ```bash
 ros2 run autoware_component_interface_admission manifest_admit \

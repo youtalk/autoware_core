@@ -25,9 +25,9 @@ namespace autoware::component_interface_admission
 {
 
 // Serialize an InterfaceManifest to the JSON payload carried in the OCI image label
-// (org.autoware.interface_manifest) and the fixed-path /opt/autoware/manifest.json. The key names
-// are documented in the package README as the label payload schema and are the single source of
-// truth shared with from_json().
+// (org.autoware.interface_manifest) or in an installed interface_manifest_fragment.json file. The
+// key names are documented in the package README as the label payload schema and are the single
+// source of truth shared with from_json().
 std::string to_json(const InterfaceManifest & manifest);
 
 // Parse one InterfaceManifest from its JSON payload. DEFENSIVE: any malformed input (JSON syntax
