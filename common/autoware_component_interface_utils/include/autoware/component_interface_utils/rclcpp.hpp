@@ -89,9 +89,9 @@ public:
     sub = create_subscription_impl<SpecT>(interface_, std::forward<CallbackT>(callback));
   }
 
-  /// Relay message. Goes through the impls directly rather than init_pub/init_sub
-  /// so that this helper neither triggers a deprecation warning nor bypasses
-  /// interface registration.
+  /// Relay message. Goes through create_publisher_impl/create_subscription_impl directly
+  /// rather than init_pub/init_sub so that this helper neither triggers a deprecation
+  /// warning nor bypasses interface registration.
   template <class P, class S>
   void relay_message(P & pub, S & sub) const
   {
@@ -102,9 +102,10 @@ public:
     sub = create_subscription_impl<SubSpecT>(interface_, [pub](MsgT msg) { pub->publish(*msg); });
   }
 
-  /// Relay service. Goes through the impls directly rather than init_cli/init_srv
-  /// so that this helper neither triggers a deprecation warning nor bypasses
-  /// interface registration. The client is deliberately left out of `group`:
+  /// Relay service. Goes through create_client_impl/create_service_impl directly
+  /// rather than init_cli/init_srv so that this helper neither triggers a
+  /// deprecation warning nor bypasses interface registration. The client is
+  /// deliberately left out of `group`:
   /// only the service goes into the caller's (typically MutuallyExclusive)
   /// callback group, so the client's response can still be taken while the
   /// service callback that issued the call is blocked in Client::call.
