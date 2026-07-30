@@ -148,3 +148,113 @@ TEST(ManifestJson, wrong_value_type_throws_runtime_error)
   // provided must be an array.
   EXPECT_THROW(adm::from_json(R"({"node_name":"/n","provided":{}})"), std::runtime_error);
 }
+
+// --- v2 schema: QoS-carrying manifests and conditional version keys ---
+
+TEST(manifest_json, v2_qos_and_omitted_version_parse)
+{
+  const auto m = adm::from_json(R"({
+    "node_name": "/n",
+    "provided": [{"interface_name": "/t",
+                  "qos": {"reliability": "reliable", "durability": "volatile", "depth": 1}}]
+  })");
+  ASSERT_EQ(m.provided.size(), 1u);
+  EXPECT_FALSE(m.provided[0].has_version);
+  ASSERT_TRUE(m.provided[0].has_qos);
+  EXPECT_EQ(m.provided[0].qos.reliability, "reliable");
+  EXPECT_EQ(m.provided[0].qos.durability, "volatile");
+  EXPECT_EQ(m.provided[0].qos.depth, 1);
+}
+
+TEST(manifest_json, v1_doc_parses_with_has_qos_false)
+{
+  const auto m = adm::from_json(
+    R"({"node_name":"/n","provided":[{"interface_name":"/a","major":1,"minor":0,"patch":0}]})");
+  ASSERT_EQ(m.provided.size(), 1u);
+  EXPECT_TRUE(m.provided[0].has_version);
+  EXPECT_FALSE(m.provided[0].has_qos);
+}
+
+TEST(manifest_json, required_entry_version_keys_omitted_parses_unversioned)
+{
+  const auto m = adm::from_json(R"({
+    "node_name": "/n",
+    "required": [{"interface_name": "/s",
+                  "qos": {"reliability": "reliable", "durability": "volatile", "depth": 10}}]
+  })");
+  ASSERT_EQ(m.required.size(), 1u);
+  EXPECT_FALSE(m.required[0].has_version);
+  ASSERT_TRUE(m.required[0].has_qos);
+  EXPECT_EQ(m.required[0].qos.depth, 10);
+}
+
+TEST(manifest_json, partial_version_keys_throws)
+{
+  // Only "major" present out of the major/minor/patch group -- a malformed partial declaration.
+  EXPECT_THROW(
+    adm::from_json(R"({"node_name":"/n","provided":[{"interface_name":"/a","major":1}]})"),
+    std::runtime_error);
+  EXPECT_THROW(
+    adm::from_json(
+      R"({"node_name":"/n",
+          "required":[{"interface_name":"/s","accept_major_min":1,"accept_major_max":1}]})"),
+    std::runtime_error);
+}
+
+TEST(manifest_json, unknown_policy_string_throws)
+{
+  EXPECT_THROW(
+    adm::from_json(R"({
+      "node_name": "/n",
+      "provided": [{"interface_name": "/t",
+                    "qos": {"reliability": "best-effort", "durability": "volatile", "depth": 1}}]
+    })"),
+    std::runtime_error);
+  EXPECT_THROW(
+    adm::from_json(R"({
+      "node_name": "/n",
+      "provided": [{"interface_name": "/t",
+                    "qos": {"reliability": "reliable", "durability": "persistent", "depth": 1}}]
+    })"),
+    std::runtime_error);
+}
+
+TEST(manifest_json, manifests_from_json_object_root_yields_one)
+{
+  const auto manifests = adm::manifests_from_json(R"({"node_name":"/n"})");
+  ASSERT_EQ(manifests.size(), 1u);
+  EXPECT_EQ(manifests[0].node_name, "/n");
+}
+
+TEST(manifest_json, manifests_from_json_array_root_yields_n)
+{
+  const auto manifests = adm::manifests_from_json(R"([{"node_name":"/n1"}, {"node_name":"/n2"}])");
+  ASSERT_EQ(manifests.size(), 2u);
+  EXPECT_EQ(manifests[0].node_name, "/n1");
+  EXPECT_EQ(manifests[1].node_name, "/n2");
+}
+
+TEST(manifest_json, manifests_from_json_other_root_throws)
+{
+  EXPECT_THROW(adm::manifests_from_json("42"), std::runtime_error);
+  EXPECT_THROW(adm::manifests_from_json(R"("a string")"), std::runtime_error);
+}
+
+TEST(manifest_json, spec_pivots_require_the_pivot_marker)
+{
+  const char * spec = R"({
+    "owner": "autowarefoundation", "qos_semantics": "pivot",
+    "interfaces": [{"domain": "control", "interface": "/c", "type": "pkg/msg/C",
+                    "kind": "topic", "version": "0.1.0",
+                    "qos": {"history": "keep_last", "depth": 1,
+                            "reliability": "reliable", "durability": "volatile"}}]
+  })";
+  const auto pivots = adm::spec_pivots_from_json(spec);
+  ASSERT_EQ(pivots.count("/c"), 1u);
+  EXPECT_EQ(pivots.at("/c").reliability, "reliable");
+  EXPECT_EQ(pivots.at("/c").durability, "volatile");
+  EXPECT_EQ(pivots.at("/c").depth, 1);
+
+  const char * unmarked = R"({"owner": "x", "interfaces": []})";
+  EXPECT_THROW(adm::spec_pivots_from_json(unmarked), std::runtime_error);
+}

@@ -17,7 +17,9 @@
 
 #include "autoware/component_interface_admission/records.hpp"
 
+#include <map>
 #include <string>
+#include <vector>
 
 namespace autoware::component_interface_admission
 {
@@ -32,11 +34,26 @@ std::string to_json(const InterfaceManifest & manifest);
 // error, wrong root type, a missing required key, or a value of the wrong type) is reported by
 // throwing std::runtime_error. It never triggers undefined behaviour or crashes on bad input.
 //
-// Required keys per entry: interface_name, and the numeric version / range fields (major / minor /
-// patch for a provided entry; accept_major_min / accept_major_max / min_minor for a required one).
+// Required keys per entry: interface_name. The version fields (major / minor / patch for a
+// provided entry; accept_major_min / accept_major_max / min_minor for a required one) are a group:
+// all three present parses as versioned (has_version = true); all three absent parses as
+// unversioned (has_version = false, the fields default to 0); any other combination -- a partial
+// declaration -- throws. `qos` (reliability / durability / depth) is optional; when present it
+// populates has_qos = true and qos, and an out-of-vocabulary reliability/durability string throws.
 // Optional keys default: ns / type_name / owner / node_name to "", resolved_name to interface_name
 // (equal to it when not remapped), and the provided / required arrays to empty when absent.
 InterfaceManifest from_json(const std::string & doc);
+
+// Parse a manifest document set from one JSON payload: an object root yields exactly one manifest
+// (equivalent to from_json()); an array root yields one manifest per element; any other root type
+// throws std::runtime_error.
+std::vector<InterfaceManifest> manifests_from_json(const std::string & doc);
+
+// Parse the spec pivot manifest (autoware_component_interface_specs' interface_manifest.json):
+// DEFENSIVE, throws std::runtime_error unless the top-level "qos_semantics" key is exactly
+// "pivot" -- this package must never silently treat an unrelated or future-schema document as a
+// pivot manifest. Returns a map from `interfaces[].interface` to the QoS at `interfaces[].qos`.
+std::map<std::string, QosRecord> spec_pivots_from_json(const std::string & doc);
 
 }  // namespace autoware::component_interface_admission
 
