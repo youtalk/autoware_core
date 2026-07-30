@@ -55,43 +55,44 @@ public:
   explicit NodeAdaptor(rclcpp::Node * node) { interface_ = std::make_shared<NodeInterface>(node); }
 
   /// Create a client wrapper for logging.
+  /// Legacy form; prefer create_client<Spec>() instead.
   template <class SharedPtrT>
-  [[deprecated("use create_client<Spec>()")]] void init_cli(
-    SharedPtrT & cli, CallbackGroup group = nullptr) const
+  void init_cli(SharedPtrT & cli, CallbackGroup group = nullptr) const
   {
     using SpecT = typename SharedPtrT::element_type::SpecType;
     cli = create_client_impl<SpecT>(interface_, group);
   }
 
   /// Create a service wrapper for logging.
+  /// Legacy form; prefer create_service<Spec>() instead.
   template <class SharedPtrT, class CallbackT>
-  [[deprecated("use create_service<Spec>()")]] void init_srv(
-    SharedPtrT & srv, CallbackT && callback, CallbackGroup group = nullptr) const
+  void init_srv(SharedPtrT & srv, CallbackT && callback, CallbackGroup group = nullptr) const
   {
     using SpecT = typename SharedPtrT::element_type::SpecType;
     srv = create_service_impl<SpecT>(interface_, std::forward<CallbackT>(callback), group);
   }
 
   /// Create a publisher using traits like services.
+  /// Legacy form; prefer create_publisher<Spec>() instead.
   template <class SharedPtrT>
-  [[deprecated("use create_publisher<Spec>()")]] void init_pub(SharedPtrT & pub) const
+  void init_pub(SharedPtrT & pub) const
   {
     using SpecT = typename SharedPtrT::element_type::SpecType;
     pub = create_publisher_impl<SpecT>(interface_);
   }
 
   /// Create a subscription using traits like services.
+  /// Legacy form; prefer create_subscription<Spec>() instead.
   template <class SharedPtrT, class CallbackT>
-  [[deprecated("use create_subscription<Spec>()")]] void init_sub(
-    SharedPtrT & sub, CallbackT && callback) const
+  void init_sub(SharedPtrT & sub, CallbackT && callback) const
   {
     using SpecT = typename SharedPtrT::element_type::SpecType;
     sub = create_subscription_impl<SpecT>(interface_, std::forward<CallbackT>(callback));
   }
 
   /// Relay message. Goes through create_publisher_impl/create_subscription_impl directly
-  /// rather than init_pub/init_sub so that this helper neither triggers a deprecation
-  /// warning nor bypasses interface registration.
+  /// rather than init_pub/init_sub so that this helper uses the current entry points
+  /// without depending on the legacy overloads.
   template <class P, class S>
   void relay_message(P & pub, S & sub) const
   {
@@ -103,8 +104,8 @@ public:
   }
 
   /// Relay service. Goes through create_client_impl/create_service_impl directly
-  /// rather than init_cli/init_srv so that this helper neither triggers a
-  /// deprecation warning nor bypasses interface registration. The client is
+  /// rather than init_cli/init_srv so that this helper uses the current entry
+  /// points without depending on the legacy overloads. The client is
   /// deliberately left out of `group`:
   /// only the service goes into the caller's (typically MutuallyExclusive)
   /// callback group, so the client's response can still be taken while the
@@ -123,8 +124,9 @@ public:
   }
 
   /// Create a subscription wrapper for pointer callback.
+  /// Legacy form; prefer create_subscription<Spec>() instead.
   template <class SharedPtrT, class InstanceT>
-  [[deprecated("use create_subscription<Spec>()")]] void init_sub(
+  void init_sub(
     SharedPtrT & sub, InstanceT * instance,
     MessagePtrCallback<SharedPtrT, InstanceT> && callback) const
   {
@@ -134,8 +136,9 @@ public:
   }
 
   /// Create a subscription wrapper for reference callback.
+  /// Legacy form; prefer create_subscription<Spec>() instead.
   template <class SharedPtrT, class InstanceT>
-  [[deprecated("use create_subscription<Spec>()")]] void init_sub(
+  void init_sub(
     SharedPtrT & sub, InstanceT * instance,
     MessageRefCallback<SharedPtrT, InstanceT> && callback) const
   {
@@ -145,8 +148,9 @@ public:
   }
 
   /// Create a service wrapper for logging.
+  /// Legacy form; prefer create_service<Spec>() instead.
   template <class SharedPtrT, class InstanceT>
-  [[deprecated("use create_service<Spec>()")]] void init_srv(
+  void init_srv(
     SharedPtrT & srv, InstanceT * instance, ServiceCallback<SharedPtrT, InstanceT> && callback,
     CallbackGroup group = nullptr) const
   {
