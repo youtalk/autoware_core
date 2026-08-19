@@ -63,6 +63,24 @@ if(BUILD_TESTING)
     sensor_msgs
   )
 
+  # Real nodes and a real ROS graph, like test_component_interface_registration above, so it
+  # needs the same isolated-domain-ID treatment.
+  ament_add_ros_isolated_gtest(test_topic_subscription_polling
+    test/test_topic_subscription_polling.cpp
+  )
+
+  target_include_directories(test_topic_subscription_polling
+    PRIVATE include
+  )
+
+  ament_target_dependencies(test_topic_subscription_polling
+    rclcpp
+    rclcpp_components
+    autoware_adapi_v1_msgs
+    autoware_component_interface_specs
+    sensor_msgs
+  )
+
   # Pure mapping logic over InterfaceRecord -- no rclcpp::init(), no Node, no ROS
   # graph -- so it does not need the isolated-domain-ID treatment the two
   # targets above require.

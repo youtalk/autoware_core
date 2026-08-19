@@ -5,6 +5,7 @@
 This is a utility package that provides the following features:
 
 - Instantiation of the wrapper class
+- Polling a subscription for the newest message, an accumulated latest, or every queued message, each with DDS source-timestamp tracking
 - Registration of every interface a node creates into a queryable manifest
 - Serialization of that manifest to the admission manifest document schema
 - Opt-in service introspection for service and client
@@ -85,6 +86,38 @@ Both styles register the interface identically, so migrating a call site is a me
 | `init_srv(srv, instance, &Instance::service_callback, group)` | `srv = create_service<Spec>(std::bind(&Instance::service_callback, instance, _1, _2), group)` |
 
 The `init_*` overloads are not removed, so existing call sites keep compiling as-is; `create_*` is preferred for new code, and existing call sites are expected to migrate over time.
+
+## Polling a subscription
+
+`Subscription` provides three ways to pull messages out of the middleware queue instead of dispatching through a callback:
+
+- `take()` drains up to the subscription's QoS depth and returns only the **newest** message, discarding any older ones that were queued; it returns `nullptr` if nothing was queued.
+- `take_and_update(ptr)` / `take_and_update(ref)` do the same drain-and-keep-newest as `take()`, but write the result into an existing pointer or reference instead of returning it, and report success as a `bool`.
+- `take_all()` drains **every** currently queued message, oldest first, returning a `std::vector` of all of them; it returns an empty vector if nothing was queued.
+
+`last_taken_data_timestamp()` returns the DDS **source timestamp** (`rclcpp::Time(message_info.get_rmw_message_info().source_timestamp, RCL_ROS_TIME)`) of the last message taken -- not the message header stamp and not the local reception time.
+Its behavior on an unsuccessful take differs per method, matching each method's semantics:
+
+| Method                 | On success                           | On failure / empty                       |
+| ---------------------- | ------------------------------------ | ---------------------------------------- |
+| `take()`               | set to the taken message's timestamp | **cleared** to `std::nullopt`            |
+| `take_and_update(...)` | set                                  | **left untouched** (sticky)              |
+| `take_all()`           | set to the **last** message taken    | **cleared** to `std::nullopt` when empty |
+
+Before anything has been taken, `last_taken_data_timestamp()` is `std::nullopt`.
+
+### Migrating from `autoware_utils_rclcpp::InterProcessPollingSubscriber`
+
+`autoware_utils_rclcpp::InterProcessPollingSubscriber<MessageT, PollingPolicy>` offers the same three drain behaviors as its `polling_policy` template parameter, and `Subscription` mirrors their semantics exactly:
+
+| `InterProcessPollingSubscriber` policy | `Subscription` equivalent                                                   |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| `polling_policy::Latest`               | `take_and_update(ptr)` / `take_and_update(ref)` + a member you keep updated |
+| `polling_policy::Newest`               | `take()`                                                                    |
+| `polling_policy::All`                  | `take_all()`                                                                |
+
+One constraint motivates keeping `Subscription` around as the more general option: `InterProcessPollingSubscriber`'s `Latest` and `Newest` policies call `check_qos()` at construction, which throws `std::invalid_argument` when the QoS depth is greater than 1 -- so those two policies cannot be used at all with a spec that declares depth > 1.
+`Subscription` has no such restriction; `take()` and `take_and_update()` both drain up to the actual QoS depth regardless of what that depth is.
 
 ## Opt-in service introspection for service and client
 
