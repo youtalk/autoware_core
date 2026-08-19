@@ -100,8 +100,11 @@ void publishMandatoryTopics(
   test_manager->publishInput(
     test_target_node, "behavior_velocity_planner_node/input/dynamic_objects",
     autoware_perception_msgs::msg::PredictedObjects{});
+  // The node now subscribes to the obstacle cloud through its interface
+  // spec, i.e. the canonical absolute topic name rather than the
+  // remap-resolved "behavior_velocity_planner_node/input/no_ground_pointcloud".
   test_manager->publishInput(
-    test_target_node, "behavior_velocity_planner_node/input/no_ground_pointcloud",
+    test_target_node, "/perception/obstacle_segmentation/pointcloud",
     sensor_msgs::msg::PointCloud2{}.set__header(
       std_msgs::msg::Header{}.set__frame_id("base_link")));
   test_manager->publishInput(

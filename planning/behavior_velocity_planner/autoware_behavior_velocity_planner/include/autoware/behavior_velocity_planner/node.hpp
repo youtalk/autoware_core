@@ -18,6 +18,8 @@
 #include "autoware/behavior_velocity_planner/planner_manager.hpp"
 
 #include <autoware/behavior_velocity_planner_common/planner_data.hpp>
+#include <autoware/component_interface_specs/perception.hpp>
+#include <autoware/component_interface_utils/rclcpp.hpp>
 #include <autoware_utils_debug/published_time_publisher.hpp>
 #include <autoware_utils_logging/logger_level_configure.hpp>
 #include <autoware_utils_rclcpp/polling_subscriber.hpp>
@@ -71,9 +73,10 @@ private:
     autoware_perception_msgs::msg::PredictedObjects>
     sub_predicted_objects_{this, "~/input/dynamic_objects"};
 
-  autoware_utils_rclcpp::InterProcessPollingSubscriber<sensor_msgs::msg::PointCloud2>
-    sub_no_ground_pointcloud_{
-      this, "~/input/no_ground_pointcloud", autoware_utils_rclcpp::single_depth_sensor_qos()};
+  autoware::component_interface_utils::Subscription<
+    autoware::component_interface_specs::perception::ObstacleSegmentation>::SharedPtr
+    sub_no_ground_pointcloud_;
+  sensor_msgs::msg::PointCloud2::ConstSharedPtr latest_no_ground_pointcloud_;
 
   autoware_utils_rclcpp::InterProcessPollingSubscriber<nav_msgs::msg::Odometry>
     sub_vehicle_odometry_{this, "~/input/vehicle_odometry"};

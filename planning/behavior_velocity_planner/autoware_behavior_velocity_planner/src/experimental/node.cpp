@@ -73,6 +73,15 @@ BehaviorVelocityPlannerNode::BehaviorVelocityPlannerNode(const rclcpp::NodeOptio
   // set velocity smoother param
   onParam();
 
+  // Subscribers
+  {
+    autoware::component_interface_utils::NodeAdaptor adaptor(this);
+    sub_no_ground_pointcloud_ =
+      adaptor
+        .create_subscription<autoware::component_interface_specs::perception::ObstacleSegmentation>(
+          nullptr);
+  }
+
   // Publishers
   path_pub_ = this->create_publisher<autoware_planning_msgs::msg::Path>("~/output/path", 1);
   debug_viz_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/path", 1);
@@ -232,13 +241,14 @@ bool BehaviorVelocityPlannerNode::processData(rclcpp::Clock clock)
     processOdometry(odometry);
   }
 
-  sensor_msgs::msg::PointCloud2::ConstSharedPtr no_ground_pointcloud;
-  is_ready &= getData(
-    no_ground_pointcloud, sub_no_ground_pointcloud_, "pointcloud",
-    required_subscriptions.no_ground_pointcloud);
+  sub_no_ground_pointcloud_->take_and_update(latest_no_ground_pointcloud_);
+  if (required_subscriptions.no_ground_pointcloud && !latest_no_ground_pointcloud_) {
+    logData("pointcloud");
+    is_ready = false;
+  }
 
-  if (required_subscriptions.no_ground_pointcloud && no_ground_pointcloud) {
-    is_ready &= processNoGroundPointCloud(no_ground_pointcloud);
+  if (required_subscriptions.no_ground_pointcloud && latest_no_ground_pointcloud_) {
+    is_ready &= processNoGroundPointCloud(latest_no_ground_pointcloud_);
   }
 
   const auto map_data = sub_lanelet_map_.take_data();

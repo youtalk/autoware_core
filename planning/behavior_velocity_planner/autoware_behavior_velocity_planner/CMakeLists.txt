@@ -41,6 +41,15 @@ if(BUILD_TESTING)
     ${PROJECT_NAME}_lib
   )
   target_include_directories(test_${PROJECT_NAME}_data_processing PRIVATE src)
+
+  ament_add_gtest(test_interface_fragment
+    test/test_interface_fragment.cpp
+  )
+  ament_target_dependencies(test_interface_fragment
+    ament_index_cpp
+    autoware_component_interface_specs
+    autoware_component_interface_utils
+  )
 endif()
 
 autoware_ament_auto_package(INSTALL_TO_SHARE
