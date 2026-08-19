@@ -76,6 +76,13 @@ MotionVelocityPlannerNode::MotionVelocityPlannerNode(const rclcpp::NodeOptions &
     "~/input/vector_map", rclcpp::QoS(10).transient_local(),
     std::bind(&MotionVelocityPlannerNode::on_lanelet_map, this, _1),
     create_subscription_options(this));
+  {
+    autoware::component_interface_utils::NodeAdaptor adaptor(this);
+    sub_no_ground_pointcloud_ =
+      adaptor
+        .create_subscription<autoware::component_interface_specs::perception::ObstacleSegmentation>(
+          nullptr);
+  }
 
   srv_load_plugin_ = create_service<LoadPlugin>(
     "~/service/load_plugin", std::bind(&MotionVelocityPlannerNode::on_load_plugin, this, _1, _2));
@@ -175,12 +182,12 @@ bool MotionVelocityPlannerNode::update_planner_data(
     planner_data_->process_predicted_objects(*predicted_objects_ptr);
   processing_times["update_planner_data.pred_obj"] = sw.toc(true);
 
-  const auto no_ground_pointcloud_ptr = sub_no_ground_pointcloud_.take_data();
+  sub_no_ground_pointcloud_->take_and_update(latest_no_ground_pointcloud_);
   if (check_with_log(
-        no_ground_pointcloud_ptr, "Waiting for pointcloud",
+        latest_no_ground_pointcloud_, "Waiting for pointcloud",
         required_subscriptions.no_ground_pointcloud)) {
     sw.tic("process_no_ground_pointcloud");
-    auto no_ground_pointcloud = process_no_ground_pointcloud(no_ground_pointcloud_ptr);
+    auto no_ground_pointcloud = process_no_ground_pointcloud(latest_no_ground_pointcloud_);
     processing_times["update_planner_data.pointcloud.affine_transform"] =
       sw.toc("process_no_ground_pointcloud");
     sw.tic("preprocess_pointcloud");

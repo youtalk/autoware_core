@@ -50,9 +50,12 @@ public:
       "/motion_velocity_planner/input/trajectory", rclcpp::QoS(1).transient_local());
     dynamic_objects_pub_ = create_publisher<autoware_perception_msgs::msg::PredictedObjects>(
       "/motion_velocity_planner/input/dynamic_objects", rclcpp::QoS(1).transient_local());
+    // The node now subscribes to the obstacle cloud through its interface
+    // spec, i.e. the canonical absolute topic name with the spec's QoS
+    // (reliable, volatile, depth 5) rather than the remap-resolved
+    // "~/input/no_ground_pointcloud" with best-effort sensor-data QoS.
     no_ground_pointcloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-      "/motion_velocity_planner/input/no_ground_pointcloud",
-      autoware_utils_rclcpp::single_depth_sensor_qos());
+      "/perception/obstacle_segmentation/pointcloud", rclcpp::QoS(5));
     vehicle_odometry_pub_ = create_publisher<nav_msgs::msg::Odometry>(
       "/motion_velocity_planner/input/vehicle_odometry", rclcpp::QoS(1).transient_local());
     acceleration_pub_ = create_publisher<geometry_msgs::msg::AccelWithCovarianceStamped>(
