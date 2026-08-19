@@ -111,4 +111,7 @@ def test_committed_config_is_ratcheted_to_error():
         assert cfg.severity(gate) is Severity.OFF, gate
     # Spot-check the committed heavy-raw deny list.
     assert "concatenated/pointcloud" in cfg.no_raw_spec_topic_deny
-    assert cfg.no_raw_spec_topic_allow == []
+    # /perception/obstacle_segmentation/pointcloud is the one deliberate,
+    # design-approved exemption (see the comment in interface_gates.yaml);
+    # this pins the committed allow list to exactly that single entry.
+    assert cfg.no_raw_spec_topic_allow == ["/perception/obstacle_segmentation/pointcloud"]

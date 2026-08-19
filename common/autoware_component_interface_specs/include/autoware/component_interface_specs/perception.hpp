@@ -21,6 +21,7 @@
 #include <autoware_perception_msgs/msg/predicted_objects.hpp>
 #include <autoware_perception_msgs/msg/tracked_objects.hpp>
 #include <autoware_perception_msgs/msg/traffic_light_group_array.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 
 #include <rmw/qos_profiles.h>
 
@@ -54,8 +55,17 @@ struct TrackedObjects  // new spec (tracking-stage output read by a planning-sid
   static constexpr auto durability = RMW_QOS_POLICY_DURABILITY_VOLATILE;
 };
 
+struct ObstacleSegmentation  // new spec (heavy-raw boundary versioned as-is; see design 2026-08-12)
+{
+  using Message = sensor_msgs::msg::PointCloud2;
+  static constexpr char name[] = "/perception/obstacle_segmentation/pointcloud";
+  static constexpr size_t depth = 5;
+  static constexpr auto reliability = RMW_QOS_POLICY_RELIABILITY_RELIABLE;
+  static constexpr auto durability = RMW_QOS_POLICY_DURABILITY_VOLATILE;
+};
+
 AUTOWARE_COMPONENT_INTERFACE_SPECS_DEFINE_DOMAIN(
-  0, 1, 0, ObjectRecognition, TrafficSignals, TrackedObjects)
+  0, 2, 0, ObjectRecognition, TrafficSignals, TrackedObjects, ObstacleSegmentation)
 
 }  // namespace autoware::component_interface_specs::perception
 

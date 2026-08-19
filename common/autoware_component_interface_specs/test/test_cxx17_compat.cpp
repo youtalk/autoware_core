@@ -44,11 +44,12 @@ namespace cis = autoware::component_interface_specs;
 TEST(cxx17_compat, every_domain_resolves_its_version)
 {
   constexpr cis::Version v0_1_0{0, 1, 0};
+  constexpr cis::Version v0_2_0{0, 2, 0};
 
   static_assert(cis::spec_version<cis::control::ControlCommand>() == v0_1_0);
   static_assert(cis::spec_version<cis::localization::Initialize>() == v0_1_0);
   static_assert(cis::spec_version<cis::map::VectorMap>() == v0_1_0);
-  static_assert(cis::spec_version<cis::perception::ObjectRecognition>() == v0_1_0);
+  static_assert(cis::spec_version<cis::perception::ObjectRecognition>() == v0_2_0);
   static_assert(cis::spec_version<cis::planning::Trajectory>() == v0_1_0);
   static_assert(cis::spec_version<cis::sensing::VehicleVelocityConverterTwist>() == v0_1_0);
   static_assert(cis::spec_version<cis::system::OperationModeState>() == v0_1_0);

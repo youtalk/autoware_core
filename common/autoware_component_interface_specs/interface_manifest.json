@@ -188,7 +188,7 @@
       "interface": "/perception/object_recognition/objects",
       "type": "autoware_perception_msgs/msg/PredictedObjects",
       "kind": "topic",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "qos": {
         "history": "keep_last",
         "depth": 1,
@@ -201,7 +201,7 @@
       "interface": "/perception/traffic_light_recognition/traffic_signals",
       "type": "autoware_perception_msgs/msg/TrafficLightGroupArray",
       "kind": "topic",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "qos": {
         "history": "keep_last",
         "depth": 1,
@@ -214,10 +214,23 @@
       "interface": "/perception/object_recognition/tracking/objects",
       "type": "autoware_perception_msgs/msg/TrackedObjects",
       "kind": "topic",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "qos": {
         "history": "keep_last",
         "depth": 1,
+        "reliability": "reliable",
+        "durability": "volatile"
+      }
+    },
+    {
+      "domain": "perception",
+      "interface": "/perception/obstacle_segmentation/pointcloud",
+      "type": "sensor_msgs/msg/PointCloud2",
+      "kind": "topic",
+      "version": "0.2.0",
+      "qos": {
+        "history": "keep_last",
+        "depth": 5,
         "reliability": "reliable",
         "durability": "volatile"
       }

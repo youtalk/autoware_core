@@ -25,6 +25,7 @@ namespace tu = autoware::component_interface_specs::test_utils;
 TEST(perception, concept_and_registration)
 {
   using specs::perception::ObjectRecognition;
+  using specs::perception::ObstacleSegmentation;
   using specs::perception::Specs;
   using specs::perception::TrackedObjects;
   using specs::perception::TrafficSignals;
@@ -32,11 +33,13 @@ TEST(perception, concept_and_registration)
   static_assert(specs::InterfaceSpec<ObjectRecognition>);
   static_assert(specs::InterfaceSpec<TrafficSignals>);
   static_assert(specs::InterfaceSpec<TrackedObjects>);
+  static_assert(specs::InterfaceSpec<ObstacleSegmentation>);
 
   static_assert(tu::has_type<ObjectRecognition, Specs>::value);
   static_assert(tu::has_type<TrafficSignals, Specs>::value);
   static_assert(tu::has_type<TrackedObjects, Specs>::value);
-  static_assert(std::tuple_size_v<Specs> == 3);
+  static_assert(tu::has_type<ObstacleSegmentation, Specs>::value);
+  static_assert(std::tuple_size_v<Specs> == 4);
   SUCCEED();
 }
 
@@ -45,5 +48,13 @@ TEST(perception, interface)
   using specs::perception::ObjectRecognition;
   tu::expect_topic_qos<ObjectRecognition>(
     "/perception/object_recognition/objects", 1, RMW_QOS_POLICY_RELIABILITY_RELIABLE,
+    RMW_QOS_POLICY_DURABILITY_VOLATILE);
+}
+
+TEST(perception, interface_obstacle_segmentation)
+{
+  using specs::perception::ObstacleSegmentation;
+  tu::expect_topic_qos<ObstacleSegmentation>(
+    "/perception/obstacle_segmentation/pointcloud", 5, RMW_QOS_POLICY_RELIABILITY_RELIABLE,
     RMW_QOS_POLICY_DURABILITY_VOLATILE);
 }

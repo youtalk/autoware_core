@@ -50,7 +50,18 @@ no_raw_spec_topic:
     - /image_raw
     - occupancy_grid_map/map
     - concatenated/pointcloud
-  allow: []
+  # /perception/obstacle_segmentation/pointcloud is deliberately versioned as a
+  # heavy-raw payload: it is the safety-critical cross-domain boundary between
+  # obstacle segmentation and nine downstream packages across control and
+  # planning, and the 2026-08-12 no-ground-pointcloud-boundary design reverses
+  # the heavy-raw confinement rule for this one interface by explicit decision
+  # (the sensing-side obstacle-grid replacement that was meant to retire this
+  # boundary was cancelled). The exemption covers name/type/QoS conformance
+  # only: the spec declares no content profile (field layout, point density,
+  # frame), so passing this gate does not imply payload compatibility between
+  # producer and consumer.
+  allow:
+    - /perception/obstacle_segmentation/pointcloud
 
 # owner_isolation: extension (vendor) manifests may not shadow a base-owner
 # interface name. Vacuously clean with the single autowarefoundation core manifest;
