@@ -49,6 +49,20 @@ if(BUILD_TESTING)
     autoware_component_interface_specs
   )
 
+  ament_add_ros_isolated_gtest(test_register_publisher
+    test/test_register_publisher.cpp
+  )
+
+  target_include_directories(test_register_publisher
+    PRIVATE include
+  )
+
+  ament_target_dependencies(test_register_publisher
+    rclcpp
+    rclcpp_components
+    sensor_msgs
+  )
+
   # Pure mapping logic over InterfaceRecord -- no rclcpp::init(), no Node, no ROS
   # graph -- so it does not need the isolated-domain-ID treatment the two
   # targets above require.

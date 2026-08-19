@@ -25,6 +25,8 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -235,6 +237,38 @@ public:
     rclcpp::CallbackGroup::SharedPtr group = nullptr)
   {
     return create_client_impl<SpecT>(interface_, group);
+  }
+
+  /// Register an externally created publisher as this spec's provider if and
+  /// only if its remap-resolved topic name equals the spec's canonical name.
+  /// This is the intake for boundaries terminated by generic pipeline nodes
+  /// (relative "output" repointed by launch), where create_publisher<Spec>()
+  /// cannot be used because the node does not know at construction whether it
+  /// is the boundary terminal. Returns false (registering nothing) when the
+  /// name differs; throws std::runtime_error when the name matches but the
+  /// endpoint QoS does not conform to the spec, so a mis-declared terminal
+  /// fails node startup loudly instead of silently diverging from the spec.
+  template <class SpecT>
+  bool register_publisher(
+    const typename rclcpp::Publisher<typename SpecT::Message>::SharedPtr & publisher)
+  {
+    if (std::string{publisher->get_topic_name()} != std::string{SpecT::name}) {
+      return false;
+    }
+    const auto actual = publisher->get_actual_qos().get_rmw_qos_profile();
+    const auto expected = get_qos<SpecT>().get_rmw_qos_profile();
+    if (
+      actual.reliability != expected.reliability || actual.durability != expected.durability ||
+      actual.depth != expected.depth) {
+      throw std::runtime_error(
+        std::string{"register_publisher: endpoint QoS on "} + SpecT::name +
+        " does not match the interface specification");
+    }
+    interface_->register_interface(
+      make_record<SpecT>(
+        InterfaceRecord::Kind::Topic, InterfaceRecord::Role::Provide, publisher->get_topic_name(),
+        rosidl_generator_traits::name<typename SpecT::Message>(), actual));
+    return true;
   }
 
   /// Snapshot of every interface this adaptor registered.

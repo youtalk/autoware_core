@@ -169,6 +169,24 @@ The document has an `owner`, a `node_name`, and `provided`/`required` arrays; ea
 An unnameable QoS policy (for example the record's own `SYSTEM_DEFAULT` default, meaning nothing was ever actually applied) makes serialization throw `std::invalid_argument` rather than emit a placeholder.
 Version fields are conditional on `has_version`: a versioned `provided[]` entry carries `major`/`minor`/`patch`, a versioned `required[]` entry carries the accepted range (`accept_major_min`, `accept_major_max`, `min_minor`), and an unversioned record omits all of them rather than emitting zeros.
 
+## Registering an externally created publisher
+
+`create_publisher<Spec>()` is the normal way to get a registered, spec-conformant publisher: the adaptor picks the spec's name and QoS itself, so the endpoint cannot diverge from the specification.
+It requires the node to know the spec at construction time, which some nodes cannot: a generic pipeline node whose output topic is a relative name (for example `output`) repointed by launch-time remapping does not know until it is actually constructed -- and remapped -- whether the resulting resolved name happens to be a boundary this deployment publishes on a versioned interface.
+For that case, `NodeAdaptor` provides `register_publisher<Spec>(publisher)`, which takes a publisher the node already created some other way and folds it into the manifest as that spec's provider, but only if the publisher's own resolved topic name actually is the spec's canonical name:
+
+```cpp
+auto node = autoware::component_interface_utils::NodeAdaptor(this);
+auto pub = create_publisher<sensor_msgs::msg::PointCloud2>("output", rclcpp::QoS(5).reliable());
+node.register_publisher<MyCloudSpec>(pub);  // no-op if "output" did not resolve to MyCloudSpec::name
+```
+
+- If the resolved name differs from `Spec::name`, `register_publisher` registers nothing and returns `false`; this is the ordinary case for most deployments of a generic node, where the topic is not the boundary.
+- If the resolved name matches but the publisher's actual QoS (reliability, durability, depth) does not match the spec's QoS, it throws `std::runtime_error` instead of registering a record. A node that happens to land on the canonical name without meeting the spec's QoS is a mis-declared boundary, and this fails node startup loudly rather than letting the manifest record a provider that silently diverges from the specification.
+- On a name match with conforming QoS, it registers a `Provide` record exactly like `create_publisher<Spec>()` would and returns `true`.
+
+Prefer `create_publisher<Spec>()` whenever the node can name its spec at construction time; reach for `register_publisher<Spec>()` only at the boundary case above, where the publisher already exists and the spec match can only be known after remapping.
+
 ## Interface manifest fragments
 
 A package that wants its nodes' manifests checked by a deploy-time admission gate commits an interface manifest fragment: `config/interface_manifest_fragment.json`, containing either one manifest document (matching the schema above) for a single-node package, or a JSON array of them for a package with multiple nodes.
